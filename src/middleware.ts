@@ -4,11 +4,6 @@ import type { NextRequest } from 'next/server';
 const DEFAULT_ADMIN_LOGIN_PATH = '/super-admin';
 const ADMIN_LOGIN_PATH = process.env.NEXT_PUBLIC_ADMIN_LOGIN_PATH || DEFAULT_ADMIN_LOGIN_PATH;
 
-const middlewareMatcher = ['/admin/login', '/super-admin', '/ops/:path*'];
-if (ADMIN_LOGIN_PATH !== DEFAULT_ADMIN_LOGIN_PATH) {
-  middlewareMatcher.push(ADMIN_LOGIN_PATH);
-}
-
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -24,5 +19,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: middlewareMatcher,
+  matcher: ['/admin/login', '/super-admin', '/ops/:path*'],
 };
