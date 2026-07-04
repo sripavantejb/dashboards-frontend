@@ -239,7 +239,63 @@ export interface Expense {
   status: 'paid' | 'pending';
   spentAt: string;
   notes?: string;
+  projectId?: string | { _id: string; name: string };
   createdAt: string;
+}
+
+export interface ProjectFinanceSummary {
+  projectId: string;
+  projectName: string;
+  budget: number;
+  budgetReceived: number;
+  budgetPending: number;
+  totalRevenue: number;
+  totalSpent: number;
+  netProfit: number;
+  progress: number;
+  status: string;
+}
+
+export interface BudgetPayment {
+  _id: string;
+  projectId: string;
+  label: string;
+  amount: number;
+  status: 'received' | 'pending';
+  receivedAt?: string;
+  dueDate?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RevenueEntry {
+  _id: string;
+  projectId: string;
+  type: 'credit' | 'debit';
+  amount: number;
+  description: string;
+  recordedAt: string;
+  createdAt: string;
+}
+
+export interface FinanceOverview {
+  totals: {
+    budget: number;
+    budgetReceived: number;
+    budgetPending: number;
+    totalRevenue: number;
+    totalSpent: number;
+    netProfit: number;
+  };
+  projects: ProjectFinanceSummary[];
+}
+
+export interface ProjectFinanceDetail {
+  summary: ProjectFinanceSummary;
+  budgetPayments: BudgetPayment[];
+  revenueEntries: RevenueEntry[];
+  expenses: Expense[];
 }
 
 export interface OrgUser {

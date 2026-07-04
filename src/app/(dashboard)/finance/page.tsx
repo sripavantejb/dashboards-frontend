@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, CheckCircle2, Clock, TrendingUp, TrendingDown, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { PageHeader } from '@/components/layout/page-header';
@@ -14,21 +14,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { SimpleModal } from '@/components/shared/simple-modal';
 import { PageError, PageLoading, EmptyState } from '@/components/shared/page-states';
-import { cn, formatCurrency, formatDate } from '@/lib/utils';
-import type { Invoice, Expense } from '@/types';
+import { cn, formatCurrency, formatDate, formatDateTime } from '@/lib/utils';
+import type { FinanceOverview, ProjectFinanceDetail, ProjectFinanceSummary } from '@/types';
 
-const INVOICE_STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-700',
-  sent: 'bg-blue-100 text-blue-700',
-  paid: 'bg-green-100 text-green-700',
-  overdue: 'bg-red-100 text-red-700',
-  cancelled: 'bg-gray-100 text-gray-500',
-};
-
-const EXPENSE_STATUS_COLORS: Record<string, string> = {
-  paid: 'bg-red-100 text-red-700',
-  pending: 'bg-orange-100 text-orange-700',
-};
+type DetailTab = 'budget' | 'revenue' | 'spendings';
+type ModalType = 'budget' | 'revenue-credit' | 'revenue-debit' | 'spending' | null;
 
 const EXPENSE_CATEGORIES = [
   { value: 'marketing', label: 'Marketing' },
@@ -40,19 +30,96 @@ const EXPENSE_CATEGORIES = [
   { value: 'other', label: 'Other' },
 ];
 
-const PAYMENT_METHODS = ['Cash', 'UPI', 'Bank Transfer', 'Credit Card', 'Cheque'];
-
 function getTodayLocal() {
   const d = new Date();
   const pad = (n: number) => n.toString().padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+function getNowLocal() {
+  const d = new Date();
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function ProjectSummaryCard({
+  project,
+  selected,
+  onSelect,
+}: {
+  project: ProjectFinanceSummary;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const receivedPct = project.budget > 0 ? Math.round((project.budgetReceived / project.budget) * 100) : 0;
+
+  return (
+    <Card
+      className={cn('cursor-pointer transition-all hover:shadow-md', selected && 'ring-2 ring-primary')}
+      onClick={onSelect}
+    >
+      <CardContent className="p-4 lg:p-5">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="font-semibold">{project.projectName}</p>
+            <p className="text-xs text-muted-foreground capitalize mt-0.5">{project.status}</p>
+          </div>
+          <ChevronRight className={cn('h-4 w-4 text-muted-foreground shrink-0', selected && 'text-primary')} />
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+          <div>
+            <p className="text-xs text-muted-foreground">Budget</p>
+            <p className="font-medium">{formatCurrency(project.budget)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Received</p>
+            <p className="font-medium text-green-700">{formatCurrency(project.budgetReceived)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Pending</p>
+            <p className="font-medium text-orange-600">{formatCurrency(project.budgetPending)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Net</p>
+            <p className={cn('font-medium', project.netProfit >= 0 ? 'text-green-700' : 'text-red-600')}>
+              {formatCurrency(project.netProfit)}
+            </p>
+          </div>
+        </div>
+        {project.budget > 0 && (
+          <div className="mt-3">
+            <div className="flex justify-between text-xs text-muted-foreground mb-1">
+              <span>Budget received</span>
+              <span>{receivedPct}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div className="h-full bg-green-600 rounded-full" style={{ width: `${Math.min(receivedPct, 100)}%` }} />
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function FinancePage() {
-  const [tab, setTab] = useState<'invoices' | 'spendings'>('invoices');
-  const [showNewInvoice, setShowNewInvoice] = useState(false);
-  const [showNewSpending, setShowNewSpending] = useState(false);
-  const [invoiceForm, setInvoiceForm] = useState({ description: '', quantity: 1, rate: 0 });
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<DetailTab>('budget');
+  const [modal, setModal] = useState<ModalType>(null);
+  const queryClient = useQueryClient();
+
+  const [budgetForm, setBudgetForm] = useState({
+    label: '',
+    amount: 0,
+    status: 'pending' as 'received' | 'pending',
+    dueDate: '',
+    notes: '',
+  });
+  const [revenueForm, setRevenueForm] = useState({
+    description: '',
+    amount: 0,
+    recordedAt: getNowLocal(),
+  });
   const [spendingForm, setSpendingForm] = useState({
     title: '',
     amount: 0,
@@ -63,42 +130,106 @@ export default function FinancePage() {
     spentAt: getTodayLocal(),
     notes: '',
   });
-  const queryClient = useQueryClient();
 
-  const { data: invoiceData, isLoading: invoicesLoading, isError: invoicesError, refetch: refetchInvoices } = useQuery({
-    queryKey: ['invoices'],
-    queryFn: () => api.get<Invoice[]>('/invoices?limit=50'),
+  const { data: overviewData, isLoading, isError, refetch } = useQuery({
+    queryKey: ['finance-overview'],
+    queryFn: () => api.get<FinanceOverview>('/finance/overview'),
   });
 
-  const { data: expenseData, isLoading: expensesLoading, isError: expensesError, refetch: refetchExpenses } = useQuery({
-    queryKey: ['expenses'],
-    queryFn: () => api.get<Expense[]>('/expenses?limit=50'),
+  const overview = overviewData?.data;
+  const projects = overview?.projects || [];
+  const activeProjectId = selectedProjectId || projects[0]?.projectId || null;
+
+  const { data: detailData, isLoading: detailLoading } = useQuery({
+    queryKey: ['finance-project', activeProjectId],
+    queryFn: () => api.get<ProjectFinanceDetail>(`/finance/projects/${activeProjectId}`),
+    enabled: !!activeProjectId,
   });
 
-  const createInvoice = useMutation({
-    mutationFn: () => api.post('/invoices', {
-      items: [{ description: invoiceForm.description, quantity: invoiceForm.quantity, rate: invoiceForm.rate }],
-      status: 'draft',
-    }),
+  const detail = detailData?.data;
+  const activeProject = projects.find((p) => p.projectId === activeProjectId);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['finance-overview'] });
+    if (activeProjectId) {
+      queryClient.invalidateQueries({ queryKey: ['finance-project', activeProjectId] });
+    }
+    queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    queryClient.invalidateQueries({ queryKey: ['notifications-count'] });
+  };
+
+  const createBudget = useMutation({
+    mutationFn: () =>
+      api.post('/finance/budget-payments', {
+        projectId: activeProjectId,
+        ...budgetForm,
+        dueDate: budgetForm.dueDate || undefined,
+      }),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success('Invoice created');
-        queryClient.invalidateQueries({ queryKey: ['invoices'] });
-        setShowNewInvoice(false);
-        setInvoiceForm({ description: '', quantity: 1, rate: 0 });
+        toast.success('Budget payment added');
+        invalidate();
+        setModal(null);
+        setBudgetForm({ label: '', amount: 0, status: 'pending', dueDate: '', notes: '' });
       }
     },
   });
 
+  const updateBudget = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: 'received' | 'pending' }) =>
+      api.patch(`/finance/budget-payments/${id}`, { status }),
+    onSuccess: () => {
+      toast.success('Budget status updated');
+      invalidate();
+    },
+  });
+
+  const deleteBudget = useMutation({
+    mutationFn: (id: string) => api.delete(`/finance/budget-payments/${id}`),
+    onSuccess: () => {
+      toast.success('Budget payment removed');
+      invalidate();
+    },
+  });
+
+  const createRevenue = useMutation({
+    mutationFn: (type: 'credit' | 'debit') =>
+      api.post('/finance/revenue-entries', {
+        projectId: activeProjectId,
+        type,
+        amount: revenueForm.amount,
+        description: revenueForm.description,
+        recordedAt: new Date(revenueForm.recordedAt).toISOString(),
+      }),
+    onSuccess: (res) => {
+      if (res.success) {
+        toast.success('Revenue entry recorded');
+        invalidate();
+        setModal(null);
+        setRevenueForm({ description: '', amount: 0, recordedAt: getNowLocal() });
+      }
+    },
+  });
+
+  const deleteRevenue = useMutation({
+    mutationFn: (id: string) => api.delete(`/finance/revenue-entries/${id}`),
+    onSuccess: () => {
+      toast.success('Revenue entry removed');
+      invalidate();
+    },
+  });
+
   const createSpending = useMutation({
-    mutationFn: () => api.post('/expenses', {
-      ...spendingForm,
-      spentAt: new Date(spendingForm.spentAt).toISOString(),
-    }),
+    mutationFn: () =>
+      api.post('/expenses', {
+        ...spendingForm,
+        projectId: activeProjectId,
+        spentAt: new Date(spendingForm.spentAt).toISOString(),
+      }),
     onSuccess: () => {
       toast.success('Spending added');
-      queryClient.invalidateQueries({ queryKey: ['expenses'] });
-      setShowNewSpending(false);
+      invalidate();
+      setModal(null);
       setSpendingForm({
         title: '',
         amount: 0,
@@ -112,266 +243,338 @@ export default function FinancePage() {
     },
   });
 
-  const updateInvoice = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) => api.patch(`/invoices/${id}`, { status }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      toast.success('Invoice updated');
-    },
-  });
-
-  const updateSpending = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) => api.patch(`/expenses/${id}`, { status }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['expenses'] });
-      toast.success('Spending updated');
-    },
-  });
-
-  const deleteInvoice = useMutation({
-    mutationFn: (id: string) => api.delete(`/invoices/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      toast.success('Invoice deleted');
-    },
-  });
-
   const deleteSpending = useMutation({
     mutationFn: (id: string) => api.delete(`/expenses/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['expenses'] });
-      toast.success('Spending deleted');
+      toast.success('Spending removed');
+      invalidate();
     },
   });
 
-  const invoices = invoiceData?.data || [];
-  const expenses = expenseData?.data || [];
+  const totals = overview?.totals;
 
-  const totalPaid = invoices.filter((i) => i.status === 'paid').reduce((s, i) => s + i.total, 0);
-  const totalPending = invoices.filter((i) => ['sent', 'draft'].includes(i.status)).reduce((s, i) => s + i.total, 0);
-  const totalSpendings = expenses.filter((e) => e.status === 'paid').reduce((s, e) => s + e.amount, 0);
-  const pendingSpendings = expenses.filter((e) => e.status === 'pending').reduce((s, e) => s + e.amount, 0);
-  const netProfit = totalPaid - totalSpendings;
-
-  const isLoading = tab === 'invoices' ? invoicesLoading : expensesLoading;
-  const isError = tab === 'invoices' ? invoicesError : expensesError;
-  const refetch = tab === 'invoices' ? refetchInvoices : refetchExpenses;
+  if (isLoading) return <PageLoading rows={6} />;
+  if (isError) return <PageError onRetry={() => refetch()} />;
 
   return (
     <>
       <PageHeader
         title="Finance"
-        description="Invoices, spendings, and revenue tracking"
+        description="Project budgets, revenue, and spendings"
         action={
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-            {tab === 'invoices' ? (
-              <Button className="w-full sm:w-auto" onClick={() => setShowNewInvoice(true)}>
-                <Plus className="h-4 w-4 mr-2" /> New Invoice
+          activeProjectId ? (
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => setModal('budget')}>
+                <Plus className="h-4 w-4 mr-1" /> Budget
               </Button>
-            ) : (
-              <Button className="w-full sm:w-auto" onClick={() => setShowNewSpending(true)}>
-                <Plus className="h-4 w-4 mr-2" /> Add Spending
+              <Button size="sm" variant="outline" onClick={() => setModal('revenue-credit')}>
+                <TrendingUp className="h-4 w-4 mr-1" /> Add Revenue
               </Button>
-            )}
-          </div>
+              <Button size="sm" variant="outline" onClick={() => setModal('revenue-debit')}>
+                <TrendingDown className="h-4 w-4 mr-1" /> Subtract
+              </Button>
+              <Button size="sm" onClick={() => setModal('spending')}>
+                <Plus className="h-4 w-4 mr-1" /> Spending
+              </Button>
+            </div>
+          ) : undefined
         }
       />
 
-      <PageGrid cols="4">
-        <Card><CardContent className="pt-5 lg:pt-6"><p className="text-xs text-muted-foreground">Paid Revenue</p><p className="mt-1 text-2xl font-semibold text-green-700">{formatCurrency(totalPaid)}</p></CardContent></Card>
-        <Card><CardContent className="pt-5 lg:pt-6"><p className="text-xs text-muted-foreground">Total Spendings</p><p className="mt-1 text-2xl font-semibold text-red-600">{formatCurrency(totalSpendings)}</p></CardContent></Card>
-        <Card><CardContent className="pt-5 lg:pt-6"><p className="text-xs text-muted-foreground">Net Profit</p><p className={cn('mt-1 text-2xl font-semibold', netProfit >= 0 ? 'text-green-700' : 'text-red-600')}>{formatCurrency(netProfit)}</p></CardContent></Card>
-        <Card><CardContent className="pt-5 lg:pt-6"><p className="text-xs text-muted-foreground">Pending</p><p className="mt-1 text-sm font-semibold">Invoices: {formatCurrency(totalPending)}</p><p className="text-sm font-semibold text-orange-600">Spendings: {formatCurrency(pendingSpendings)}</p></CardContent></Card>
-      </PageGrid>
+      {totals && (
+        <PageGrid cols="4">
+          <Card>
+            <CardContent className="pt-5 lg:pt-6">
+              <p className="text-xs text-muted-foreground">Budget Received</p>
+              <p className="mt-1 text-2xl font-semibold text-green-700">{formatCurrency(totals.budgetReceived)}</p>
+              <p className="text-xs text-muted-foreground mt-1">of {formatCurrency(totals.budget)} total</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-5 lg:pt-6">
+              <p className="text-xs text-muted-foreground">Budget Pending</p>
+              <p className="mt-1 text-2xl font-semibold text-orange-600">{formatCurrency(totals.budgetPending)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-5 lg:pt-6">
+              <p className="text-xs text-muted-foreground">Total Revenue</p>
+              <p className="mt-1 text-2xl font-semibold text-green-700">{formatCurrency(totals.totalRevenue)}</p>
+              <p className="text-xs text-muted-foreground mt-1">Spendings: {formatCurrency(totals.totalSpent)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-5 lg:pt-6">
+              <p className="text-xs text-muted-foreground">Net Profit</p>
+              <p className={cn('mt-1 text-2xl font-semibold', totals.netProfit >= 0 ? 'text-green-700' : 'text-red-600')}>
+                {formatCurrency(totals.netProfit)}
+              </p>
+            </CardContent>
+          </Card>
+        </PageGrid>
+      )}
 
-      <div className="flex gap-2 mb-4">
-        <Button
-          variant={tab === 'invoices' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setTab('invoices')}
-        >
-          Invoices ({invoices.length})
-        </Button>
-        <Button
-          variant={tab === 'spendings' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setTab('spendings')}
-        >
-          Spendings ({expenses.length})
-        </Button>
-      </div>
-
-      {isLoading ? (
-        <PageLoading rows={4} />
-      ) : isError ? (
-        <PageError onRetry={() => refetch()} />
-      ) : tab === 'invoices' ? (
-        invoices.length === 0 ? (
-          <EmptyState message="No invoices yet." />
-        ) : (
+      {projects.length === 0 ? (
+        <EmptyState message="No projects yet. Create a project first to track budgets and revenue." />
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-[320px_1fr] mt-6">
           <div className="flex flex-col gap-3">
-            {invoices.map((inv) => (
-              <Card key={inv._id}>
-                <CardContent className="flex flex-col gap-3 p-4 lg:p-5 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-medium">{inv.invoiceNumber}</p>
-                      <Badge className={INVOICE_STATUS_COLORS[inv.status] || ''}>{inv.status}</Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">{inv.items.map((i) => i.description).join(', ')}</p>
-                    <p className="text-xs text-muted-foreground">{formatDate(inv.paidAt || inv.createdAt)}</p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-semibold text-green-700">{formatCurrency(inv.total)}</p>
-                    {inv.status === 'draft' && <Button size="sm" variant="outline" onClick={() => updateInvoice.mutate({ id: inv._id, status: 'sent' })}>Send</Button>}
-                    {inv.status === 'sent' && <Button size="sm" onClick={() => updateInvoice.mutate({ id: inv._id, status: 'paid' })}>Mark Paid</Button>}
-                    <Button size="sm" variant="ghost" className="text-error" onClick={() => deleteInvoice.mutate(inv._id)}><Trash2 className="h-4 w-4" /></Button>
-                  </div>
-                </CardContent>
-              </Card>
+            <p className="text-sm font-medium text-muted-foreground">Projects</p>
+            {projects.map((p) => (
+              <ProjectSummaryCard
+                key={p.projectId}
+                project={p}
+                selected={p.projectId === activeProjectId}
+                onSelect={() => setSelectedProjectId(p.projectId)}
+              />
             ))}
           </div>
-        )
-      ) : expenses.length === 0 ? (
-        <EmptyState message="No spendings recorded yet. Add your first expense." />
-      ) : (
-        <div className="flex flex-col gap-3">
-          {expenses.map((exp) => (
-            <Card key={exp._id}>
-              <CardContent className="flex flex-col gap-3 p-4 lg:p-5 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-medium">{exp.title}</p>
-                    <Badge className={EXPENSE_STATUS_COLORS[exp.status] || ''}>{exp.status}</Badge>
-                    <Badge variant="outline" className="capitalize">{exp.category}</Badge>
-                  </div>
+
+          <div>
+            {activeProject && (
+              <>
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold">{activeProject.projectName}</h2>
                   <p className="text-sm text-muted-foreground">
-                    {exp.referenceNumber}
-                    {exp.vendor && ` · ${exp.vendor}`}
-                    {exp.paymentMethod && ` · ${exp.paymentMethod}`}
+                    Budget {formatCurrency(activeProject.budget)} · Received {formatCurrency(activeProject.budgetReceived)} · Pending {formatCurrency(activeProject.budgetPending)}
                   </p>
-                  <p className="text-xs text-muted-foreground">{formatDate(exp.spentAt)}</p>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-semibold text-red-600">-{formatCurrency(exp.amount)}</p>
-                  {exp.status === 'pending' && (
-                    <Button size="sm" onClick={() => updateSpending.mutate({ id: exp._id, status: 'paid' })}>Mark Paid</Button>
-                  )}
-                  <Button size="sm" variant="ghost" className="text-error" onClick={() => deleteSpending.mutate(exp._id)}><Trash2 className="h-4 w-4" /></Button>
+
+                <div className="flex gap-2 mb-4 flex-wrap">
+                  {(['budget', 'revenue', 'spendings'] as DetailTab[]).map((tab) => (
+                    <Button
+                      key={tab}
+                      variant={detailTab === tab ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setDetailTab(tab)}
+                      className="capitalize"
+                    >
+                      {tab}
+                      {tab === 'budget' && detail ? ` (${detail.budgetPayments.length})` : ''}
+                      {tab === 'revenue' && detail ? ` (${detail.revenueEntries.length})` : ''}
+                      {tab === 'spendings' && detail ? ` (${detail.expenses.length})` : ''}
+                    </Button>
+                  ))}
                 </div>
-              </CardContent>
-            </Card>
-          ))}
+
+                {detailLoading ? (
+                  <PageLoading rows={3} />
+                ) : !detail ? (
+                  <EmptyState message="Could not load project finance details." />
+                ) : detailTab === 'budget' ? (
+                  detail.budgetPayments.length === 0 ? (
+                    <EmptyState message="No budget payments yet." />
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {detail.budgetPayments.map((bp) => (
+                        <Card key={bp._id}>
+                          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-medium">{bp.label}</p>
+                                <Badge className={bp.status === 'received' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}>
+                                  {bp.status === 'received' ? (
+                                    <><CheckCircle2 className="h-3 w-3 mr-1 inline" />Received</>
+                                  ) : (
+                                    <><Clock className="h-3 w-3 mr-1 inline" />Not received</>
+                                  )}
+                                </Badge>
+                              </div>
+                              <p className="text-sm font-semibold text-green-700 mt-1">{formatCurrency(bp.amount)}</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Created {formatDateTime(bp.createdAt)}
+                                {bp.receivedAt && ` · Received ${formatDateTime(bp.receivedAt)}`}
+                                {bp.dueDate && ` · Due ${formatDate(bp.dueDate)}`}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {bp.status === 'pending' && (
+                                <Button size="sm" onClick={() => updateBudget.mutate({ id: bp._id, status: 'received' })}>
+                                  Mark Received
+                                </Button>
+                              )}
+                              <Button size="sm" variant="ghost" className="text-error" onClick={() => deleteBudget.mutate(bp._id)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  )
+                ) : detailTab === 'revenue' ? (
+                  detail.revenueEntries.length === 0 ? (
+                    <EmptyState message="No revenue entries yet." />
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {detail.revenueEntries.map((entry) => (
+                        <Card key={entry._id}>
+                          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <Badge className={entry.type === 'credit' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                                  {entry.type === 'credit' ? '+ Added' : '− Subtracted'}
+                                </Badge>
+                                <p className="font-medium">{entry.description}</p>
+                              </div>
+                              <p className={cn('text-sm font-semibold mt-1', entry.type === 'credit' ? 'text-green-700' : 'text-red-600')}>
+                                {entry.type === 'credit' ? '+' : '-'}{formatCurrency(entry.amount)}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Recorded {formatDateTime(entry.recordedAt)} · Logged {formatDateTime(entry.createdAt)}
+                              </p>
+                            </div>
+                            <Button size="sm" variant="ghost" className="text-error" onClick={() => deleteRevenue.mutate(entry._id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  )
+                ) : detail.expenses.length === 0 ? (
+                  <EmptyState message="No spendings for this project yet." />
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {detail.expenses.map((exp) => (
+                      <Card key={exp._id}>
+                        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-medium">{exp.title}</p>
+                              <Badge variant="outline" className="capitalize">{exp.category}</Badge>
+                              <Badge className={exp.status === 'paid' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}>
+                                {exp.status}
+                              </Badge>
+                            </div>
+                            <p className="text-sm font-semibold text-red-600 mt-1">-{formatCurrency(exp.amount)}</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Spent {formatDate(exp.spentAt)} · Added {formatDateTime(exp.createdAt)}
+                              {exp.vendor && ` · ${exp.vendor}`}
+                            </p>
+                          </div>
+                          <Button size="sm" variant="ghost" className="text-error" onClick={() => deleteSpending.mutate(exp._id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
 
-      <SimpleModal open={showNewInvoice} onClose={() => setShowNewInvoice(false)} title="New Invoice">
-        <FormStack>
-          <FormField><Label>Description *</Label><Input value={invoiceForm.description} onChange={(e) => setInvoiceForm({ ...invoiceForm, description: e.target.value })} /></FormField>
-          <FormRow>
-            <FormField><Label>Quantity</Label><Input type="number" min={1} value={invoiceForm.quantity} onChange={(e) => setInvoiceForm({ ...invoiceForm, quantity: Number(e.target.value) })} /></FormField>
-            <FormField><Label>Rate (₹)</Label><Input type="number" min={0} value={invoiceForm.rate} onChange={(e) => setInvoiceForm({ ...invoiceForm, rate: Number(e.target.value) })} /></FormField>
-          </FormRow>
-          <p className="text-sm text-muted-foreground">Total: {formatCurrency(invoiceForm.quantity * invoiceForm.rate * 1.18)} (incl. 18% GST)</p>
-          <FormActions>
-            <Button variant="outline" onClick={() => setShowNewInvoice(false)}>Cancel</Button>
-            <Button disabled={!invoiceForm.description || createInvoice.isPending} onClick={() => createInvoice.mutate()}>Create</Button>
-          </FormActions>
-        </FormStack>
-      </SimpleModal>
-
-      <SimpleModal open={showNewSpending} onClose={() => setShowNewSpending(false)} title="Add Spending">
+      <SimpleModal open={modal === 'budget'} onClose={() => setModal(null)} title="Add Budget Payment">
         <FormStack>
           <FormField>
-            <Label>Title / Description *</Label>
-            <Input
-              value={spendingForm.title}
-              onChange={(e) => setSpendingForm({ ...spendingForm, title: e.target.value })}
-              placeholder="e.g. Google Ads, Office rent, Freelancer payment"
-            />
+            <Label>Label / Milestone *</Label>
+            <Input value={budgetForm.label} onChange={(e) => setBudgetForm({ ...budgetForm, label: e.target.value })} placeholder="e.g. Advance payment, Final milestone" />
           </FormField>
           <FormRow>
             <FormField>
               <Label>Amount (₹) *</Label>
-              <Input
-                type="number"
-                min={0}
-                value={spendingForm.amount || ''}
-                onChange={(e) => setSpendingForm({ ...spendingForm, amount: Number(e.target.value) })}
-              />
-            </FormField>
-            <FormField>
-              <Label>Date</Label>
-              <Input
-                type="date"
-                value={spendingForm.spentAt}
-                onChange={(e) => setSpendingForm({ ...spendingForm, spentAt: e.target.value })}
-              />
-            </FormField>
-          </FormRow>
-          <FormRow>
-            <FormField>
-              <Label>Category</Label>
-              <select
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                value={spendingForm.category}
-                onChange={(e) => setSpendingForm({ ...spendingForm, category: e.target.value })}
-              >
-                {EXPENSE_CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
-                ))}
-              </select>
+              <Input type="number" min={0} value={budgetForm.amount || ''} onChange={(e) => setBudgetForm({ ...budgetForm, amount: Number(e.target.value) })} />
             </FormField>
             <FormField>
               <Label>Status</Label>
               <select
                 className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                value={spendingForm.status}
-                onChange={(e) => setSpendingForm({ ...spendingForm, status: e.target.value as 'paid' | 'pending' })}
+                value={budgetForm.status}
+                onChange={(e) => setBudgetForm({ ...budgetForm, status: e.target.value as 'received' | 'pending' })}
               >
+                <option value="pending">Not received</option>
+                <option value="received">Received</option>
+              </select>
+            </FormField>
+          </FormRow>
+          <FormField>
+            <Label>Due date</Label>
+            <Input type="date" value={budgetForm.dueDate} onChange={(e) => setBudgetForm({ ...budgetForm, dueDate: e.target.value })} />
+          </FormField>
+          <FormField>
+            <Label>Notes</Label>
+            <Input value={budgetForm.notes} onChange={(e) => setBudgetForm({ ...budgetForm, notes: e.target.value })} />
+          </FormField>
+          <FormActions>
+            <Button variant="outline" onClick={() => setModal(null)}>Cancel</Button>
+            <Button disabled={!budgetForm.label || !budgetForm.amount || createBudget.isPending} onClick={() => createBudget.mutate()}>Add</Button>
+          </FormActions>
+        </FormStack>
+      </SimpleModal>
+
+      <SimpleModal
+        open={modal === 'revenue-credit' || modal === 'revenue-debit'}
+        onClose={() => setModal(null)}
+        title={modal === 'revenue-debit' ? 'Subtract Revenue' : 'Add Revenue'}
+      >
+        <FormStack>
+          <FormField>
+            <Label>Description *</Label>
+            <Input value={revenueForm.description} onChange={(e) => setRevenueForm({ ...revenueForm, description: e.target.value })} placeholder="e.g. Client payment, Refund adjustment" />
+          </FormField>
+          <FormRow>
+            <FormField>
+              <Label>Amount (₹) *</Label>
+              <Input type="number" min={0} value={revenueForm.amount || ''} onChange={(e) => setRevenueForm({ ...revenueForm, amount: Number(e.target.value) })} />
+            </FormField>
+            <FormField>
+              <Label>Date & time</Label>
+              <Input type="datetime-local" value={revenueForm.recordedAt} onChange={(e) => setRevenueForm({ ...revenueForm, recordedAt: e.target.value })} />
+            </FormField>
+          </FormRow>
+          <FormActions>
+            <Button variant="outline" onClick={() => setModal(null)}>Cancel</Button>
+            <Button
+              disabled={!revenueForm.description || !revenueForm.amount || createRevenue.isPending}
+              onClick={() => createRevenue.mutate(modal === 'revenue-debit' ? 'debit' : 'credit')}
+            >
+              {modal === 'revenue-debit' ? 'Subtract' : 'Add'}
+            </Button>
+          </FormActions>
+        </FormStack>
+      </SimpleModal>
+
+      <SimpleModal open={modal === 'spending'} onClose={() => setModal(null)} title="Add Project Spending">
+        <FormStack>
+          <FormField>
+            <Label>Title *</Label>
+            <Input value={spendingForm.title} onChange={(e) => setSpendingForm({ ...spendingForm, title: e.target.value })} />
+          </FormField>
+          <FormRow>
+            <FormField>
+              <Label>Amount (₹) *</Label>
+              <Input type="number" min={0} value={spendingForm.amount || ''} onChange={(e) => setSpendingForm({ ...spendingForm, amount: Number(e.target.value) })} />
+            </FormField>
+            <FormField>
+              <Label>Date</Label>
+              <Input type="date" value={spendingForm.spentAt} onChange={(e) => setSpendingForm({ ...spendingForm, spentAt: e.target.value })} />
+            </FormField>
+          </FormRow>
+          <FormRow>
+            <FormField>
+              <Label>Category</Label>
+              <select className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm" value={spendingForm.category} onChange={(e) => setSpendingForm({ ...spendingForm, category: e.target.value })}>
+                {EXPENSE_CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
+            </FormField>
+            <FormField>
+              <Label>Status</Label>
+              <select className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm" value={spendingForm.status} onChange={(e) => setSpendingForm({ ...spendingForm, status: e.target.value as 'paid' | 'pending' })}>
                 <option value="paid">Paid</option>
                 <option value="pending">Pending</option>
               </select>
             </FormField>
           </FormRow>
-          <FormRow>
-            <FormField>
-              <Label>Vendor / Payee</Label>
-              <Input
-                value={spendingForm.vendor}
-                onChange={(e) => setSpendingForm({ ...spendingForm, vendor: e.target.value })}
-                placeholder="Who was paid"
-              />
-            </FormField>
-            <FormField>
-              <Label>Payment Method</Label>
-              <select
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                value={spendingForm.paymentMethod}
-                onChange={(e) => setSpendingForm({ ...spendingForm, paymentMethod: e.target.value })}
-              >
-                {PAYMENT_METHODS.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </FormField>
-          </FormRow>
           <FormField>
-            <Label>Notes</Label>
-            <Input
-              value={spendingForm.notes}
-              onChange={(e) => setSpendingForm({ ...spendingForm, notes: e.target.value })}
-              placeholder="Optional notes"
-            />
+            <Label>Vendor</Label>
+            <Input value={spendingForm.vendor} onChange={(e) => setSpendingForm({ ...spendingForm, vendor: e.target.value })} />
           </FormField>
           <FormActions>
-            <Button variant="outline" onClick={() => setShowNewSpending(false)}>Cancel</Button>
-            <Button
-              disabled={!spendingForm.title || !spendingForm.amount || createSpending.isPending}
-              onClick={() => createSpending.mutate()}
-            >
-              Add Spending
-            </Button>
+            <Button variant="outline" onClick={() => setModal(null)}>Cancel</Button>
+            <Button disabled={!spendingForm.title || !spendingForm.amount || createSpending.isPending} onClick={() => createSpending.mutate()}>Add Spending</Button>
           </FormActions>
         </FormStack>
       </SimpleModal>
