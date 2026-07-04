@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth';
 import { LandingNav } from './landing-nav';
@@ -17,20 +17,15 @@ import { ScrollProgress } from './landing-motion';
 
 export function LandingPage() {
   const router = useRouter();
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const [hydrated, setHydrated] = useState(false);
+  const { isAuthenticated, hasHydrated } = useAuthStore();
 
   useEffect(() => {
-    setHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (hydrated && isAuthenticated) {
+    if (hasHydrated && isAuthenticated) {
       router.replace('/dashboard');
     }
-  }, [hydrated, isAuthenticated, router]);
+  }, [hasHydrated, isAuthenticated, router]);
 
-  if (!hydrated || isAuthenticated) {
+  if (!hasHydrated || isAuthenticated) {
     return null;
   }
 

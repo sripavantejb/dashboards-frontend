@@ -36,10 +36,16 @@ export default function AdminLoginPage() {
         user: User;
         organization: Organization;
         accessToken: string;
+        refreshToken: string;
       }>('/auth/admin/login', data);
 
       if (response.success && response.data) {
-        setAuth(response.data.user, response.data.organization, response.data.accessToken);
+        setAuth(
+          response.data.user,
+          response.data.organization,
+          response.data.accessToken,
+          response.data.refreshToken
+        );
         toast.success('Welcome, Platform Admin');
         router.push('/admin');
       } else {

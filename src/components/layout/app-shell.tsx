@@ -11,16 +11,17 @@ import { ActivityTracker } from '@/components/shared/activity-tracker';
 import { cn } from '@/lib/utils';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, hasHydrated } = useAuthStore();
   const { sidebarCollapsed, sidebarOpen, setSidebarOpen } = useUIStore();
   const router = useRouter();
   const reduceMotion = useReducedMotion();
 
   useEffect(() => {
+    if (!hasHydrated) return;
     if (!isAuthenticated) {
       router.push('/login');
     }
-  }, [isAuthenticated, router]);
+  }, [hasHydrated, isAuthenticated, router]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -30,7 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('resize', handleResize);
   }, [setSidebarOpen]);
 
-  if (!isAuthenticated) return null;
+  if (!hasHydrated || !isAuthenticated) return null;
 
   return (
     <div className="min-h-screen bg-background">

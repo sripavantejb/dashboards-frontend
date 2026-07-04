@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://dashboard-backend-pi-ten.vercel.app/api/v1';
 
 interface ApiOptions extends RequestInit {
@@ -54,8 +56,10 @@ class ApiClient {
         });
         return retryResponse.json();
       }
-      localStorage.removeItem('accessToken');
-      if (typeof window !== 'undefined') window.location.href = '/login';
+      useAuthStore.getState().logout();
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
     }
 
     return response.json();
@@ -63,14 +67,20 @@ class ApiClient {
 
   private async refreshToken(): Promise<boolean> {
     try {
+      const storedRefresh = localStorage.getItem('refreshToken');
       const response = await fetch(`${API_URL}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(storedRefresh ? { refreshToken: storedRefresh } : {}),
       });
       if (!response.ok) return false;
       const data = await response.json();
       if (data.data?.accessToken) {
         localStorage.setItem('accessToken', data.data.accessToken);
+        if (data.data.refreshToken) {
+          localStorage.setItem('refreshToken', data.data.refreshToken);
+        }
         return true;
       }
       return false;

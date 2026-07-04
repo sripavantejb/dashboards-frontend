@@ -22,11 +22,12 @@ const adminNav = [
 ];
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, user, logout } = useAuthStore();
+  const { isAuthenticated, hasHydrated, user, logout } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
+    if (!hasHydrated) return;
     if (!isAuthenticated) {
       router.push(ADMIN_LOGIN_PATH);
       return;
@@ -34,9 +35,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     if (user?.role !== 'super_admin') {
       router.push('/dashboard');
     }
-  }, [isAuthenticated, user, router]);
+  }, [hasHydrated, isAuthenticated, user, router]);
 
-  if (!isAuthenticated || user?.role !== 'super_admin') return null;
+  if (!hasHydrated || !isAuthenticated || user?.role !== 'super_admin') return null;
 
   return (
     <div className="min-h-screen bg-background">

@@ -6,8 +6,15 @@ interface AuthState {
   user: User | null;
   organization: Organization | null;
   isAuthenticated: boolean;
-  setAuth: (user: User, organization: Organization | null, accessToken: string) => void;
+  hasHydrated: boolean;
+  setAuth: (
+    user: User,
+    organization: Organization | null,
+    accessToken: string,
+    refreshToken?: string
+  ) => void;
   logout: () => void;
+  setHasHydrated: (value: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -16,14 +23,20 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       organization: null,
       isAuthenticated: false,
-      setAuth: (user, organization, accessToken) => {
+      hasHydrated: false,
+      setAuth: (user, organization, accessToken, refreshToken) => {
         localStorage.setItem('accessToken', accessToken);
+        if (refreshToken) {
+          localStorage.setItem('refreshToken', refreshToken);
+        }
         set({ user, organization, isAuthenticated: true });
       },
       logout: () => {
         localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
         set({ user: null, organization: null, isAuthenticated: false });
       },
+      setHasHydrated: (value) => set({ hasHydrated: value }),
     }),
     {
       name: 'auth-storage',
@@ -32,6 +45,15 @@ export const useAuthStore = create<AuthState>()(
         organization: state.organization,
         isAuthenticated: state.isAuthenticated,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          const token = localStorage.getItem('accessToken');
+          if (state.isAuthenticated && !token) {
+            state.logout();
+          }
+        }
+        useAuthStore.getState().setHasHydrated(true);
+      },
     }
   )
 );

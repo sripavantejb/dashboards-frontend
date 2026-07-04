@@ -35,10 +35,16 @@ export default function LoginPage() {
         user: User;
         organization: Organization;
         accessToken: string;
+        refreshToken: string;
       }>('/auth/login', data);
 
       if (response.success && response.data) {
-        setAuth(response.data.user, response.data.organization, response.data.accessToken);
+        setAuth(
+          response.data.user,
+          response.data.organization,
+          response.data.accessToken,
+          response.data.refreshToken
+        );
         toast.success('Welcome back!');
         router.push('/dashboard');
       } else {

@@ -70,10 +70,16 @@ function RegisterFormContent() {
         user: User;
         organization: Organization;
         accessToken: string;
+        refreshToken: string;
       }>('/auth/register', { ...data, inviteToken: inviteToken || undefined });
 
       if (response.success && response.data) {
-        setAuth(response.data.user, response.data.organization, response.data.accessToken);
+        setAuth(
+          response.data.user,
+          response.data.organization,
+          response.data.accessToken,
+          response.data.refreshToken
+        );
         toast.success('Account created successfully!');
         router.push('/dashboard');
       } else {
