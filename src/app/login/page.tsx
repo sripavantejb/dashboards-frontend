@@ -8,13 +8,9 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { AuthSplitLayout } from '@/components/auth/auth-split-layout';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth';
-import { FadeIn } from '@/components/shared/motion';
 import type { User, Organization } from '@/types';
 
 const loginSchema = z.object({
@@ -65,40 +61,40 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-surface-soft p-4">
-      <FadeIn className="w-full max-w-md">
-      <Card className="w-full">
-        <CardHeader className="text-center">
-          <CardTitle className="font-display text-2xl">Agency ERP</CardTitle>
-          <CardDescription>Sign in to your account</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" placeholder="you@company.com" {...register('email')} />
-              {errors.email && <p className="text-xs text-error">{errors.email.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" placeholder="••••••••" {...register('password')} />
-              {errors.password && <p className="text-xs text-error">{errors.password.message}</p>}
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign in'}
-            </Button>
-          </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            {showRegisterLink ? (
-              <>Don&apos;t have an account?{' '}
-              <Link href="/register" className="font-medium text-foreground hover:underline">Register</Link></>
-            ) : (
-              <>Need access? Contact your administrator for an invite.</>
-            )}
-          </p>
-        </CardContent>
-      </Card>
-      </FadeIn>
-    </div>
+    <AuthSplitLayout
+      badge="Agency Login"
+      headline="Run your agency. Manage leads, pipeline, and teams with clarity."
+      steps={[
+        { number: 1, label: 'Enter your email and password' },
+        { number: 2, label: 'Access your agency dashboard' },
+      ]}
+      formTitle="Your workspace starts here"
+      formDescription="Use your company email and password to sign in."
+      emailPlaceholder="you@company.com"
+      submitLabel="Sign in"
+      loading={loading}
+      onSubmit={handleSubmit(onSubmit)}
+      emailRegister={register('email')}
+      passwordRegister={register('password')}
+      emailError={errors.email?.message}
+      passwordError={errors.password?.message}
+      footer={
+        showRegisterLink ? (
+          <>
+            Don&apos;t have an account?{' '}
+            <Link href="/register" className="font-medium text-foreground hover:underline">
+              Register
+            </Link>
+          </>
+        ) : (
+          <>
+            Need access?{' '}
+            <Link href="/#request-access" className="font-medium text-foreground hover:underline">
+              Request access
+            </Link>
+          </>
+        )
+      }
+    />
   );
 }
