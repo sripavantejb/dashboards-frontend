@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://dashboard-backend-pi-ten.vercel.app/api/v1';
 
 interface ApiOptions extends RequestInit {
   token?: string;
