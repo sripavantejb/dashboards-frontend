@@ -2,11 +2,9 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AuthSplitLayout } from '@/components/auth/auth-split-layout';
 import { api } from '@/lib/api';
@@ -29,13 +27,6 @@ export default function LoginPage() {
     resolver: zodResolver(loginSchema),
     defaultValues: { email: 'admin@agency.com', password: 'Admin@123456' },
   });
-
-  const { data: publicSettings } = useQuery({
-    queryKey: ['public-settings'],
-    queryFn: () => api.get<{ allowPublicRegistration: boolean; inviteOnlyMode: boolean }>('/auth/settings/public'),
-  });
-
-  const showRegisterLink = publicSettings?.data?.allowPublicRegistration || !publicSettings?.data?.inviteOnlyMode;
 
   const onSubmit = async (data: LoginForm) => {
     setLoading(true);
@@ -78,23 +69,7 @@ export default function LoginPage() {
       passwordRegister={register('password')}
       emailError={errors.email?.message}
       passwordError={errors.password?.message}
-      footer={
-        showRegisterLink ? (
-          <>
-            Don&apos;t have an account?{' '}
-            <Link href="/register" className="font-medium text-foreground hover:underline">
-              Register
-            </Link>
-          </>
-        ) : (
-          <>
-            Need access?{' '}
-            <Link href="/#request-access" className="font-medium text-foreground hover:underline">
-              Request access
-            </Link>
-          </>
-        )
-      }
+      footer="Don't have an account? Contact admin."
     />
   );
 }
