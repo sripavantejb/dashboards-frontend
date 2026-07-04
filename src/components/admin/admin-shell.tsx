@@ -8,12 +8,13 @@ import { cn } from '@/lib/utils';
 import { ADMIN_LOGIN_PATH } from '@/lib/admin-routes';
 import { Button } from '@/components/ui/button';
 import {
-  LayoutDashboard, Building2, Shield, Activity, ArrowLeft, LogOut, Settings,
+  LayoutDashboard, Building2, Shield, Activity, ArrowLeft, LogOut, Settings, Inbox,
 } from 'lucide-react';
 import { AnimatedPage } from '@/components/shared/motion';
 
 const adminNav = [
   { name: 'Overview', href: '/admin', icon: LayoutDashboard },
+  { name: 'Access Requests', href: '/admin/access-requests', icon: Inbox },
   { name: 'Companies', href: '/admin/organizations', icon: Building2 },
   { name: 'Platform Admins', href: '/admin/admins', icon: Shield },
   { name: 'Activity', href: '/admin/activity', icon: Activity },

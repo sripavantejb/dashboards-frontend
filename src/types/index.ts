@@ -263,7 +263,25 @@ export interface AdminStats {
   platformAdmins: number;
   totalSessions: number;
   totalTimeSeconds: number;
+  pendingAccessRequests?: number;
   planBreakdown?: Record<string, number>;
+}
+
+export interface AccessRequest {
+  _id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  companyName: string;
+  phone?: string;
+  teamSize?: string;
+  message?: string;
+  status: 'pending' | 'contacted' | 'approved' | 'rejected';
+  adminNotes?: string;
+  reviewedBy?: { firstName: string; lastName: string; email: string };
+  reviewedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AdminOrganization {

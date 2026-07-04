@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Building2, Users, Clock, Shield, Activity } from 'lucide-react';
+import { Building2, Users, Clock, Shield, Activity, Inbox } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageHeader } from '@/components/layout/page-header';
 import { PageGrid, PageSection } from '@/components/layout/page-layout';
@@ -34,8 +34,8 @@ export default function AdminOverviewPage() {
         <PageGrid cols="4">
           <KpiCard title="Companies" value={stats?.totalOrganizations || 0} format="number" icon={<Building2 className="h-4 w-4" />} />
           <KpiCard title="Active Companies" value={stats?.activeOrganizations || 0} format="number" icon={<Building2 className="h-4 w-4" />} />
+          <KpiCard title="Pending Requests" value={stats?.pendingAccessRequests || 0} format="number" icon={<Inbox className="h-4 w-4" />} />
           <KpiCard title="ERP Users" value={stats?.totalUsers || 0} format="number" icon={<Users className="h-4 w-4" />} />
-          <KpiCard title="Platform Admins" value={stats?.platformAdmins || 0} format="number" icon={<Shield className="h-4 w-4" />} />
         </PageGrid>
 
         <PageGrid cols="2">
@@ -59,6 +59,13 @@ export default function AdminOverviewPage() {
       )}
 
       <PageGrid cols="4">
+        <Card>
+          <CardHeader><CardTitle className="text-base">Access Requests</CardTitle></CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <p className="text-sm text-muted-foreground leading-relaxed">Review demo and access requests from the landing page.</p>
+            <Link href="/admin/access-requests"><Button size="sm">View Requests</Button></Link>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader><CardTitle className="text-base">Companies</CardTitle></CardHeader>
           <CardContent className="flex flex-col gap-4">

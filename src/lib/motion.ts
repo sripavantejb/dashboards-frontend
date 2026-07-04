@@ -77,3 +77,85 @@ export const cardReveal = {
     transition: { duration: 0.4, ease: easeOut },
   },
 };
+
+export const scrollRevealUp = {
+  hidden: { opacity: 0, y: 40 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.55, ease: easeOut },
+  },
+};
+
+export const scrollRevealDown = {
+  hidden: { opacity: 0, y: -24 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: easeOut },
+  },
+};
+
+export const scrollRevealLeft = {
+  hidden: { opacity: 0, x: -48 },
+  visible: {
+    opacity: 1,
+    x: 0,
+    transition: { duration: 0.55, ease: easeOut },
+  },
+};
+
+export const scrollRevealRight = {
+  hidden: { opacity: 0, x: 48 },
+  visible: {
+    opacity: 1,
+    x: 0,
+    transition: { duration: 0.55, ease: easeOut },
+  },
+};
+
+export const scrollScaleIn = {
+  hidden: { opacity: 0, scale: 0.92 },
+  visible: {
+    opacity: 1,
+    scale: 1,
+    transition: { duration: 0.5, ease: easeOut },
+  },
+};
+
+export const scrollStaggerContainer = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1, delayChildren: 0.08 },
+  },
+};
+
+export const scrollStaggerItem = {
+  hidden: { opacity: 0, y: 28 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.45, ease: easeOut },
+  },
+};
+
+export const heroStaggerContainer = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.12, delayChildren: 0.1 },
+  },
+};
+
+export const heroStaggerItem = {
+  hidden: { opacity: 0, y: 24 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: easeOut },
+  },
+};
+
+/** Default viewport for scroll-triggered landing animations */
+export const scrollViewport = { once: true, margin: '-80px' as const, amount: 0.2 as const };
