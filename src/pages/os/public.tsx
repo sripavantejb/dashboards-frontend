@@ -13,16 +13,17 @@ import { PageError, PageLoading } from '@/components/shared/page-states';
 import { ProgressBar, SectionCard, Select, StatCard, StatusPill, Tabs, Textarea, fmtDate, fmtDateTime, humanize, inr } from '@/components/shared/os-ui';
 import { InvoiceSheet, downloadInvoicePdf, type CompanyProfile, type InvoiceData } from '@/components/os/invoice-sheet';
 import { ScaledPreview } from './finance';
+import { CompanyMark } from '@/components/company/company-mark';
 
 type Any = Record<string, any>;
 const pub = <T,>(slug: string, path: string, method: 'GET' | 'POST' = 'GET', body?: unknown) => api.publicData<T>(`/public/${slug}${path}`, method, body);
 
-function PublicShell({ org, children, narrow }: { org?: string; children: React.ReactNode; narrow?: boolean }) {
+function PublicShell({ org, logo, children, narrow }: { org?: string; logo?: string; children: React.ReactNode; narrow?: boolean }) {
   return (
     <div className="min-h-screen bg-surface-soft">
       <header className="border-b bg-card">
         <div className={cn('mx-auto flex h-14 items-center gap-3 px-4', narrow ? 'max-w-3xl' : 'max-w-6xl')}>
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-sm font-bold text-primary-foreground">{(org || 'E').charAt(0)}</div>
+          <CompanyMark name={org} logo={logo} />
           <span className="font-semibold">{org || 'Editco Media'}</span>
         </div>
       </header>
@@ -77,7 +78,7 @@ export function PortalPage() {
   return (
     <PublicQuery q={q}>
       {(d) => (
-        <PublicShell org={d.organization.name}>
+        <PublicShell org={d.organization.name} logo={d.organization.logo}>
           <div>
             <p className="text-sm text-muted-foreground">Client portal · {d.client.publicCode}</p>
             <h1 className="text-2xl font-semibold">{d.client.companyName}</h1>
@@ -187,7 +188,7 @@ export function PortalInvoicePage() {
       {({ organization, company, invoice }) => {
         const data: InvoiceData = { ...invoice, status: invoice.displayStatus || invoice.status, lineItems: invoice.lineItems || [], taxRate: invoice.taxRate ?? 0.18 };
         return (
-          <PublicShell org={organization.name}>
+          <PublicShell org={organization.name} logo={organization.logo}>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="ghost" size="sm" asChild><Link to={`/portal/${slug}/${token}`}><ArrowLeft className="mr-1 h-4 w-4" />Back to portal</Link></Button>
               <div className="ml-auto flex gap-2">
@@ -212,7 +213,7 @@ export function TrackPage() {
   return (
     <PublicQuery q={q}>
       {(d) => (
-        <PublicShell org={d.organization.name}>
+        <PublicShell org={d.organization.name} logo={d.organization.logo}>
           <div>
             <p className="font-mono text-sm text-muted-foreground">{d.publicCode}</p>
             <h1 className="text-2xl font-semibold">{d.clientName || 'Project status'}</h1>
@@ -251,7 +252,7 @@ export function CareersPage() {
   return (
     <PublicQuery q={q}>
       {(d) => (
-        <PublicShell org={d.organization.name} narrow>
+        <PublicShell org={d.organization.name} logo={d.organization.logo} narrow>
           <div><h1 className="text-2xl font-semibold">Careers at {d.organization.name}</h1><p className="text-sm text-muted-foreground">{d.jobs.length} open {d.jobs.length === 1 ? 'role' : 'roles'}</p></div>
           {d.jobs.length ? d.jobs.map((j) => (
             <Link key={j._id} to={`/careers/${slug}/${j.slug}`} className="block rounded-lg border bg-card p-5 shadow-card transition-colors hover:border-primary/40">

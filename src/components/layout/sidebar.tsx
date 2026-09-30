@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useUIStore, useAuthStore } from '@/stores/auth';
+import { CompanyMark } from '@/components/company/company-mark';
 import { ChevronLeft, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -45,9 +46,7 @@ export function Sidebar() {
       <div className="flex h-16 items-center justify-between border-b px-4">
         {!sidebarCollapsed && (
           <Link to="/dashboard" className="flex min-w-0 items-center gap-2" onClick={handleNavClick}>
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
-              {(organization?.name || 'E').charAt(0).toUpperCase()}
-            </span>
+            <CompanyMark name={organization?.name} logo={organization?.logo} />
             <span className="truncate font-display text-base font-semibold tracking-tight">{organization?.name || 'Editco'}</span>
           </Link>
         )}

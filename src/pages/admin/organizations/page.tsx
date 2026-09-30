@@ -15,6 +15,8 @@ import { PageLoading, EmptyState } from '@/components/shared/page-states';
 import { formatDate, formatDuration } from '@/lib/utils';
 import type { AdminOrganization } from '@/types';
 import { Link } from 'react-router';
+import { CompanyMark } from '@/components/company/company-mark';
+import { LogoInput } from '@/components/company/logo-input';
 
 const PLAN_OPTIONS = [
   { value: 'starter', label: 'Starter — 5 users (Free)' },
@@ -35,6 +37,7 @@ export default function AdminOrganizationsPage() {
     name: '',
     industry: '',
     website: '',
+    logo: '',
     plan: 'starter',
     adminEmail: '',
     adminPassword: '',
@@ -53,7 +56,7 @@ export default function AdminOrganizationsPage() {
       queryClient.invalidateQueries({ queryKey: ['admin-organizations'] });
       queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
       setShowForm(false);
-      setForm({ name: '', industry: '', website: '', plan: 'starter', adminEmail: '', adminPassword: '', adminFirstName: '', adminLastName: '' });
+      setForm({ name: '', industry: '', website: '', logo: '', plan: 'starter', adminEmail: '', adminPassword: '', adminFirstName: '', adminLastName: '' });
       toast.success('Company created with ERP admin login');
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to create company'),
@@ -93,9 +96,13 @@ export default function AdminOrganizationsPage() {
               <CardContent className="p-0">
                 <ListRow>
                 <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-surface-soft p-2">
-                    <Building2 className="h-5 w-5" />
-                  </div>
+                  {org.logo ? (
+                    <CompanyMark name={org.name} logo={org.logo} className="h-9 w-9 border" />
+                  ) : (
+                    <div className="rounded-lg bg-surface-soft p-2">
+                      <Building2 className="h-5 w-5" />
+                    </div>
+                  )}
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium">{org.name}</p>
@@ -151,6 +158,10 @@ export default function AdminOrganizationsPage() {
 
       <SimpleModal open={showForm} onClose={() => setShowForm(false)} title="Create Company & ERP Login">
         <FormStack>
+          <FormField>
+            <Label>Logo</Label>
+            <LogoInput value={form.logo} name={form.name} onChange={(logo) => setForm({ ...form, logo })} />
+          </FormField>
           <FormField>
             <Label>Company Name *</Label>
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Acme Agency" />

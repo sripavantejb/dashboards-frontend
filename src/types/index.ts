@@ -344,6 +344,7 @@ export interface AdminOrganization {
   _id: string;
   name: string;
   slug: string;
+  logo?: string;
   industry?: string;
   website?: string;
   isActive: boolean;

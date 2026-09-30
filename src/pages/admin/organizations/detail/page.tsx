@@ -17,6 +17,8 @@ import { formatDate, getInitials } from '@/lib/utils';
 import type { AdminOrganization, OrgUser } from '@/types';
 import { Link, useParams } from 'react-router';
 import { CompanyDatabaseCard } from '@/components/admin/company-database-card';
+import { CompanyProfileCard } from '@/components/company/company-profile-card';
+import { NotificationEmailsCard } from '@/components/company/notification-emails-card';
 
 const ROLES = ['admin', 'manager', 'sales', 'marketing', 'hr', 'finance', 'operations', 'developer'];
 
@@ -102,6 +104,8 @@ export default function CompanyUsersPage() {
         </CardContent>
       </Card>
 
+      <CompanyProfileCard base={`/admin/organizations/${id}/settings`} onSaved={() => queryClient.invalidateQueries({ queryKey: ['admin-organization', id] })} />
+      <NotificationEmailsCard base={`/admin/organizations/${id}/settings`} />
       <CompanyDatabaseCard organizationId={id} slug={org?.slug} />
 
       {isLoading ? (
