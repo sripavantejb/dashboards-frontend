@@ -1,7 +1,4 @@
-'use client';
-
 import { useState } from 'react';
-import Link from 'next/link';
 import { Eye, EyeOff } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -9,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { Link } from 'react-router';
 
 export interface AuthSplitStep {
   number: number;
@@ -157,7 +155,7 @@ export function AuthSplitLayout({
         <div className="flex flex-1 flex-col justify-center px-6 py-10 sm:px-10 lg:px-16 xl:px-20">
           {/* Mobile header */}
           <div className="mb-8 lg:hidden">
-            <Link href="/" className="font-display text-lg font-semibold tracking-tight">
+            <Link to="/" className="font-display text-lg font-semibold tracking-tight">
               Agency ERP
             </Link>
             <Badge variant="outline" className="ml-3 text-xs">

@@ -1,5 +1,3 @@
-'use client';
-
 import { createElement, useRef } from 'react';
 import {
   motion,

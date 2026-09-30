@@ -1,7 +1,4 @@
-'use client';
-
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth';
 import { LandingNav } from './landing-nav';
 import { LandingHero } from './landing-hero';
@@ -14,16 +11,17 @@ import { LandingRequestForm } from './landing-request-form';
 import { LandingCta } from './landing-cta';
 import { LandingFooter } from './landing-footer';
 import { ScrollProgress } from './landing-motion';
+import { useNavigate } from 'react-router';
 
 export function LandingPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isAuthenticated, hasHydrated } = useAuthStore();
 
   useEffect(() => {
     if (hasHydrated && isAuthenticated) {
-      router.replace('/dashboard');
+      navigate('/dashboard', { replace: true });
     }
-  }, [hasHydrated, isAuthenticated, router]);
+  }, [hasHydrated, isAuthenticated, navigate]);
 
   if (!hasHydrated || isAuthenticated) {
     return null;

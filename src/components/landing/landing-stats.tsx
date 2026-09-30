@@ -1,5 +1,3 @@
-'use client';
-
 import { ScrollSection, ScrollStagger, ScrollStaggerItem } from './landing-motion';
 import { stats } from './landing-data';
 

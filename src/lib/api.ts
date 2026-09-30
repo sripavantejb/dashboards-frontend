@@ -1,6 +1,6 @@
 import { useAuthStore } from '@/stores/auth';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://dashboard-backend-pi-ten.vercel.app/api/v1';
+const API_URL = import.meta.env.VITE_API_URL || 'https://dashboard-backend-pi-ten.vercel.app/api/v1';
 
 interface ApiOptions extends RequestInit {
   token?: string;
@@ -101,8 +101,55 @@ class ApiClient {
     return this.request<T>(endpoint, { method: 'PATCH', body: JSON.stringify(body) });
   }
 
+  put<T>(endpoint: string, body?: unknown) {
+    return this.request<T>(endpoint, { method: 'PUT', body: JSON.stringify(body) });
+  }
+
   delete<T>(endpoint: string) {
     return this.request<T>(endpoint, { method: 'DELETE' });
+  }
+
+  /** Resolves to `data`, throwing the API error message so react-query / toasts can surface it. */
+  async data<T>(endpoint: string, method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE' = 'GET', body?: unknown): Promise<T> {
+    const res = await this.request<T>(endpoint, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+    if (!res.success) throw new Error(res.error?.message || 'Request failed');
+    return res.data as T;
+  }
+
+  /** Like `data` but keeps pagination for list endpoints. */
+  async list<T>(endpoint: string): Promise<{ data: T[]; pagination?: ApiResponse<T>['pagination'] }> {
+    const res = await this.request<T[]>(endpoint);
+    if (!res.success) throw new Error(res.error?.message || 'Request failed');
+    return { data: res.data || [], pagination: res.pagination };
+  }
+
+  /** Unauthenticated call for public pages (portal, careers, referrals). */
+  async publicData<T>(endpoint: string, method: 'GET' | 'POST' = 'GET', body?: unknown): Promise<T> {
+    const res = await fetch(`${API_URL}${endpoint}`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const json = (await res.json()) as ApiResponse<T>;
+    if (!json.success) throw new Error(json.error?.message || 'Request failed');
+    return json.data as T;
+  }
+
+  /** Downloads an authenticated binary endpoint as a file. */
+  async download(endpoint: string, fileName: string) {
+    const token = this.getToken();
+    const res = await fetch(`${API_URL}${endpoint}`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: 'include' });
+    if (!res.ok) throw new Error('Download failed');
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  get baseUrl() {
+    return API_URL;
   }
 
   async upload<T>(endpoint: string, formData: FormData) {

@@ -1,12 +1,10 @@
-'use client';
-
 import { useState } from 'react';
-import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { NavLinkMotion } from './landing-motion';
+import { Link } from 'react-router';
 
 const navLinks = [
   { label: 'Features', href: '#features' },
@@ -27,7 +25,7 @@ export function LandingNav() {
       transition={{ duration: 0.45, ease: [0.25, 0.1, 0.25, 1] }}
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 lg:px-6">
-        <Link href="/" className="font-display text-lg font-semibold tracking-tight">
+        <Link to="/" className="font-display text-lg font-semibold tracking-tight">
           Agency ERP
         </Link>
 
@@ -41,7 +39,7 @@ export function LandingNav() {
 
         <div className="hidden items-center gap-3 md:flex">
           <Button variant="ghost" size="sm" asChild>
-            <Link href="/login">Sign in</Link>
+            <Link to="/login">Sign in</Link>
           </Button>
           <Button size="sm" asChild>
             <a href="#request-access">Request access</a>
@@ -77,7 +75,7 @@ export function LandingNav() {
           ))}
           <div className="mt-3 flex flex-col gap-2 border-t pt-4">
             <Button variant="outline" size="sm" asChild>
-              <Link href="/login">Sign in</Link>
+              <Link to="/login">Sign in</Link>
             </Button>
             <Button size="sm" asChild>
               <a href="#request-access" onClick={() => setMobileOpen(false)}>Request access</a>

@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { modalBackdrop, modalContent } from '@/lib/motion';

@@ -1,5 +1,3 @@
-'use client';
-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollSection, ScrollStagger, ScrollStaggerItem, ScrollHoverLift } from './landing-motion';
 import { workflowSteps } from './landing-data';

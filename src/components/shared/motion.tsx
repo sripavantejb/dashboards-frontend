@@ -1,12 +1,10 @@
-'use client';
-
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { usePathname } from 'next/navigation';
 import { pageTransition, staggerContainer, staggerItem } from '@/lib/motion';
 import { cn } from '@/lib/utils';
+import { useLocation } from 'react-router';
 
 export function AnimatedPage({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const reduceMotion = useReducedMotion();
 
   if (reduceMotion) return <>{children}</>;

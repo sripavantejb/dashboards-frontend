@@ -1,5 +1,3 @@
-'use client';
-
 import {
   LayoutDashboard, Users, Kanban, DollarSign, TrendingUp, Target,
 } from 'lucide-react';

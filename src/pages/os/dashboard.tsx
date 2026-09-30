@@ -1,0 +1,204 @@
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
+import { AlertTriangle, BellRing, Briefcase, Building2, CircleDollarSign, FolderKanban, Send, Target, Users } from 'lucide-react';
+import { toast } from 'sonner';
+import { api } from '@/lib/api';
+import { useCan } from '@/lib/permissions';
+import { useAuthStore } from '@/stores/auth';
+import { PageHeader } from '@/components/layout/page-header';
+import { PageGrid } from '@/components/layout/page-layout';
+import { Button } from '@/components/ui/button';
+import { PageError, PageLoading } from '@/components/shared/page-states';
+import { SectionCard, StatCard, StatusPill, fmtDate, fmtDateTime, humanize, inr } from '@/components/shared/os-ui';
+
+interface Dashboard {
+  canSeeAll: boolean;
+  unread: number;
+  taskStats: { open: number; today: number; overdue: number; blocked: number; trackerOpen: number };
+  growth: { referrers: number; totalClients: number; salesCustomers: number };
+  tasks: { id: string; title: string; status: string; dueDate?: string; assignee: string; mine: boolean }[];
+  tracker: { id: string; label: string; projectName: string; status: string; mine: boolean }[];
+  myProjects: { owned: number; working: number; list: { id: string; name: string }[] };
+  workload: { id: string; name: string; role: string; active: number; completed: number; blocked: number; overdue: number; total: number }[];
+  kpis: { received: number; activeClients: number; activeProjects: number; openLeads: number; pipelineValue: number; outstanding: number };
+  pipeline: { counts: Record<string, number>; conversionRate: number };
+  operations: { dueSoon: number; meetings: { _id: string; title: string; startsAt: string }[] };
+  finance: { invoiced: number; collected: number; outstanding: number; overdue: number; monthPaid: number; quarterPaid: number; otherIncome: number; totalSpent: number; monthSpent: number; net: number };
+  attention: { overdueInvoices: { count: number; amount: number }; followUps: { id: string; notes: string; dueAt: string }[]; deliveryRisk: { dueSoon: number; overdueTasks: number } };
+}
+
+export default function OsDashboardPage() {
+  const user = useAuthStore((s) => s.user);
+  const can = useCan();
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['os-dashboard'], queryFn: () => api.data<Dashboard>('/os/dashboard') });
+
+  const alerts = useMutation({
+    mutationFn: () => api.data<{ message: string }>('/os/dashboard/alerts', 'POST'),
+    onSuccess: (r) => toast.success(r.message),
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const nudge = useMutation({
+    mutationFn: (w: Dashboard['workload'][number]) => api.data<{ message: string }>('/os/dashboard/nudge', 'POST', { userId: w.id, name: w.name, active: w.active, overdue: w.overdue }),
+    onSuccess: (r) => toast.success(r.message),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  if (isError) return <PageError onRetry={() => refetch()} />;
+  if (isLoading || !data) return <PageLoading rows={6} />;
+  const d = data;
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  return (
+    <>
+      <PageHeader
+        title={`${greeting}, ${user?.firstName || 'there'}`}
+        description="Everything that needs your attention across sales, delivery and finance."
+        action={
+          <>
+            <Button variant="outline" asChild><Link to="/notifications"><BellRing className="mr-2 h-4 w-4" />Inbox ({d.unread})</Link></Button>
+            {can('tasks:write') && (
+              <Button variant="outline" disabled={alerts.isPending} onClick={() => alerts.mutate()}>
+                <Send className="mr-2 h-4 w-4" />{alerts.isPending ? 'Sending…' : 'Send alerts'}
+              </Button>
+            )}
+          </>
+        }
+      />
+
+      <PageGrid cols="4">
+        <StatCard label="Open tasks" value={d.taskStats.open} hint={`${d.taskStats.today} due today`} icon={<Target className="h-4 w-4" />} />
+        <StatCard label="Overdue" value={d.taskStats.overdue} tone={d.taskStats.overdue ? 'danger' : 'default'} hint={`${d.taskStats.blocked} blocked`} icon={<AlertTriangle className="h-4 w-4" />} />
+        <StatCard label="My projects" value={d.myProjects.working} hint={`${d.myProjects.owned} as POC`} icon={<FolderKanban className="h-4 w-4" />} />
+        <StatCard label="Total clients" value={d.growth.totalClients} hint={`${d.growth.referrers} referrers`} icon={<Building2 className="h-4 w-4" />} />
+      </PageGrid>
+
+      {d.canSeeAll && (
+        <PageGrid cols="3">
+          <StatCard label="Received" value={inr(d.kpis.received)} tone="success" icon={<CircleDollarSign className="h-4 w-4" />} />
+          <StatCard label="Outstanding" value={inr(d.kpis.outstanding)} hint={d.attention.overdueInvoices.count ? `${d.attention.overdueInvoices.count} overdue · ${inr(d.attention.overdueInvoices.amount)}` : 'Nothing overdue'} />
+          <StatCard label="Pipeline" value={inr(d.kpis.pipelineValue)} hint={`${d.kpis.openLeads} open leads · ${d.pipeline.conversionRate}% conversion`} icon={<Users className="h-4 w-4" />} />
+        </PageGrid>
+      )}
+
+      <PageGrid cols="2">
+        <SectionCard title="My tasks" action={<Link to="/tasks?view=my" className="text-xs font-medium text-muted-foreground hover:text-foreground">View all →</Link>}>
+          {d.tasks.length === 0 ? <p className="text-sm text-muted-foreground">You're all caught up.</p> : (
+            <ul className="divide-y">
+              {d.tasks.map((t) => (
+                <li key={t.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <div className="min-w-0">
+                    <Link to={`/tasks/${t.id}`} className="block truncate text-sm font-medium hover:underline">{t.title}</Link>
+                    <p className="text-xs text-muted-foreground">{t.assignee || 'Unassigned'} · {t.dueDate ? fmtDate(t.dueDate) : 'No due date'}</p>
+                  </div>
+                  <StatusPill value={t.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Needs attention">
+          <ul className="flex flex-col gap-3 text-sm">
+            <li className="flex items-center justify-between"><span>Overdue invoices</span><Link to="/outstanding" className="font-medium hover:underline">{d.attention.overdueInvoices.count} · {inr(d.attention.overdueInvoices.amount)}</Link></li>
+            <li className="flex items-center justify-between"><span>Projects due in 7 days</span><span className="font-medium">{d.attention.deliveryRisk.dueSoon}</span></li>
+            <li className="flex items-center justify-between"><span>Overdue tasks</span><span className="font-medium">{d.attention.deliveryRisk.overdueTasks}</span></li>
+            <li className="flex items-center justify-between"><span>Open tracker rows</span><Link to="/tracker" className="font-medium hover:underline">{d.taskStats.trackerOpen}</Link></li>
+          </ul>
+          {d.attention.followUps.length > 0 && (
+            <div className="mt-4 border-t pt-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Follow-ups due</p>
+              <ul className="flex flex-col gap-1.5">
+                {d.attention.followUps.map((f) => (
+                  <li key={f.id} className="flex justify-between text-sm"><span className="truncate">{f.notes}</span><span className="text-xs text-muted-foreground">{fmtDateTime(f.dueAt)}</span></li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </SectionCard>
+      </PageGrid>
+
+      {d.canSeeAll && (
+        <PageGrid cols="2">
+          <SectionCard title="Finance snapshot" action={<Link to="/revenue" className="text-xs font-medium text-muted-foreground hover:text-foreground">Revenue →</Link>}>
+            <dl className="grid grid-cols-2 gap-4 text-sm">
+              {([
+                ['Invoiced', d.finance.invoiced], ['Collected', d.finance.collected], ['This month', d.finance.monthPaid], ['This quarter', d.finance.quarterPaid],
+                ['Other income', d.finance.otherIncome], ['Spent (month)', d.finance.monthSpent], ['Total spent', d.finance.totalSpent], ['Net', d.finance.net],
+              ] as [string, number][]).map(([k, v]) => (
+                <div key={k}><dt className="text-xs text-muted-foreground">{k}</dt><dd className="font-display text-lg font-semibold">{inr(v)}</dd></div>
+              ))}
+            </dl>
+          </SectionCard>
+
+          <SectionCard title="Sales pipeline" action={<Link to="/pipeline" className="text-xs font-medium text-muted-foreground hover:text-foreground">Pipeline →</Link>}>
+            <div className="flex flex-col gap-2">
+              {Object.entries(d.pipeline.counts).filter(([, n]) => n > 0).map(([status, n]) => {
+                const max = Math.max(1, ...Object.values(d.pipeline.counts));
+                return (
+                  <div key={status} className="flex items-center gap-3 text-sm">
+                    <span className="w-32 shrink-0 truncate text-muted-foreground">{humanize(status)}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-primary" style={{ width: `${(n / max) * 100}%` }} /></div>
+                    <span className="w-8 text-right tabular-nums">{n}</span>
+                  </div>
+                );
+              })}
+              {Object.values(d.pipeline.counts).every((n) => !n) && <p className="text-sm text-muted-foreground">No leads yet.</p>}
+            </div>
+          </SectionCard>
+        </PageGrid>
+      )}
+
+      <PageGrid cols="2">
+        <SectionCard title="Master tracker" action={<Link to="/tracker" className="text-xs font-medium text-muted-foreground hover:text-foreground">Open →</Link>}>
+          {d.tracker.length === 0 ? <p className="text-sm text-muted-foreground">No open tracker rows.</p> : (
+            <ul className="divide-y">
+              {d.tracker.map((r) => (
+                <li key={r.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <div className="min-w-0"><p className="truncate text-sm font-medium">{r.label}</p><p className="text-xs text-muted-foreground">{r.projectName}{r.mine && ' · You'}</p></div>
+                  <StatusPill value={r.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Upcoming meetings" action={<Link to="/meetings" className="text-xs font-medium text-muted-foreground hover:text-foreground">All →</Link>}>
+          {d.operations.meetings.length === 0 ? <p className="text-sm text-muted-foreground">No meetings scheduled.</p> : (
+            <ul className="divide-y">
+              {d.operations.meetings.map((m) => (
+                <li key={m._id} className="flex items-center justify-between py-2.5 text-sm"><span className="truncate font-medium">{m.title}</span><span className="text-xs text-muted-foreground">{fmtDateTime(m.startsAt)}</span></li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+      </PageGrid>
+
+      {d.canSeeAll && d.workload.length > 0 && (
+        <SectionCard title="Team workload" bodyClassName="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                {['Teammate', 'Active', 'Overdue', 'Blocked', 'Completed', ''].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {d.workload.map((w) => (
+                  <tr key={w.id} className="border-b last:border-0">
+                    <td className="px-5 py-3"><p className="font-medium">{w.name}</p><p className="text-xs text-muted-foreground">{humanize(w.role)}</p></td>
+                    <td className="px-5 py-3 tabular-nums">{w.active}</td>
+                    <td className={`px-5 py-3 tabular-nums ${w.overdue ? 'text-error' : ''}`}>{w.overdue}</td>
+                    <td className="px-5 py-3 tabular-nums">{w.blocked}</td>
+                    <td className="px-5 py-3 tabular-nums">{w.completed}</td>
+                    <td className="px-5 py-3 text-right">
+                      {w.id !== user?.id && <Button size="sm" variant="ghost" onClick={() => nudge.mutate(w)}><Briefcase className="mr-1.5 h-3.5 w-3.5" />Nudge</Button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      )}
+    </>
+  );
+}

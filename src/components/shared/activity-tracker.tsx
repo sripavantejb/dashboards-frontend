@@ -1,9 +1,7 @@
-'use client';
-
 import { useEffect, useRef } from 'react';
-import { usePathname } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth';
+import { useLocation } from 'react-router';
 
 function getModuleFromPath(pathname: string): string {
   const segment = pathname.split('/').filter(Boolean)[0] || 'dashboard';
@@ -11,7 +9,7 @@ function getModuleFromPath(pathname: string): string {
 }
 
 export function ActivityTracker() {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const { isAuthenticated } = useAuthStore();
   const sessionIdRef = useRef<string | null>(null);
 

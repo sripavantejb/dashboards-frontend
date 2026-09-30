@@ -1,8 +1,6 @@
-'use client';
-
-import Link from 'next/link';
 import { footerLinks } from './landing-data';
 import { ScrollSection, ScrollStagger, ScrollStaggerItem } from './landing-motion';
+import { Link } from 'react-router';
 
 export function LandingFooter() {
   const year = new Date().getFullYear();
@@ -12,7 +10,7 @@ export function LandingFooter() {
       <div className="mx-auto max-w-6xl px-4 py-16 lg:px-6">
         <ScrollStagger className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           <ScrollStaggerItem className="sm:col-span-2 lg:col-span-1">
-            <Link href="/" className="font-display text-lg font-semibold tracking-tight">
+            <Link to="/" className="font-display text-lg font-semibold tracking-tight">
               Agency ERP
             </Link>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
@@ -80,7 +78,7 @@ export function LandingFooter() {
                     </a>
                   ) : (
                     <Link
-                      href={link.href}
+                      to={link.href}
                       className="text-sm text-muted-foreground transition-colors hover:text-foreground"
                     >
                       {link.label}

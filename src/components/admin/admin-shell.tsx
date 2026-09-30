@@ -1,8 +1,4 @@
-'use client';
-
 import { useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
-import Link from 'next/link';
 import { useAuthStore } from '@/stores/auth';
 import { cn } from '@/lib/utils';
 import { ADMIN_LOGIN_PATH } from '@/lib/admin-routes';
@@ -11,6 +7,7 @@ import {
   LayoutDashboard, Building2, Shield, Activity, ArrowLeft, LogOut, Settings, Inbox,
 } from 'lucide-react';
 import { AnimatedPage } from '@/components/shared/motion';
+import { Link, useLocation, useNavigate } from 'react-router';
 
 const adminNav = [
   { name: 'Overview', href: '/admin', icon: LayoutDashboard },
@@ -23,19 +20,19 @@ const adminNav = [
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, hasHydrated, user, logout } = useAuthStore();
-  const router = useRouter();
-  const pathname = usePathname();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
 
   useEffect(() => {
     if (!hasHydrated) return;
     if (!isAuthenticated) {
-      router.push(ADMIN_LOGIN_PATH);
+      navigate(ADMIN_LOGIN_PATH);
       return;
     }
     if (user?.role !== 'super_admin') {
-      router.push('/dashboard');
+      navigate('/dashboard');
     }
-  }, [hasHydrated, isAuthenticated, user, router]);
+  }, [hasHydrated, isAuthenticated, user, navigate]);
 
   if (!hasHydrated || !isAuthenticated || user?.role !== 'super_admin') return null;
 
@@ -47,12 +44,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           <span className="font-display font-semibold">Agency ERP Admin</span>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/dashboard">
+          <Link to="/dashboard">
             <Button variant="outline" size="sm">
               <ArrowLeft className="h-4 w-4 mr-1" /> ERP App
             </Button>
           </Link>
-          <Button variant="ghost" size="sm" onClick={() => { logout(); router.push(ADMIN_LOGIN_PATH); }}>
+          <Button variant="ghost" size="sm" onClick={() => { logout(); navigate(ADMIN_LOGIN_PATH); }}>
             <LogOut className="h-4 w-4 mr-1" /> Logout
           </Button>
         </div>
@@ -66,7 +63,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               return (
                 <Link
                   key={item.href}
-                  href={item.href}
+                  to={item.href}
                   className={cn(
                     'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out',
                     isActive
@@ -93,7 +90,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         {adminNav.map((item) => (
           <Link
             key={item.href}
-            href={item.href}
+            to={item.href}
             className={cn(
               'flex flex-col items-center gap-0.5 px-2 py-1 text-[10px]',
               pathname === item.href ? 'text-primary' : 'text-muted-foreground'

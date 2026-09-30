@@ -1,5 +1,3 @@
-'use client';
-
 import { PageHeader } from '@/components/layout/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { Construction } from 'lucide-react';

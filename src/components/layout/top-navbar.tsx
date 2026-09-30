@@ -1,7 +1,4 @@
-'use client';
-
 import { useTheme } from 'next-themes';
-import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   Search, Bell, Sun, Moon, LogOut, User, Menu,
@@ -13,14 +10,14 @@ import { useAuthStore, useUIStore } from '@/stores/auth';
 import { api } from '@/lib/api';
 import { getInitials, cn } from '@/lib/utils';
 import { useState, useEffect, useRef } from 'react';
-import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Link, useNavigate } from 'react-router';
 
 export function TopNavbar() {
   const { theme, setTheme } = useTheme();
   const { user, logout } = useAuthStore();
   const { sidebarCollapsed, sidebarOpen, toggleSidebar } = useUIStore();
-  const router = useRouter();
+  const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [search, setSearch] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
@@ -46,12 +43,12 @@ export function TopNavbar() {
   const handleLogout = async () => {
     await api.post('/auth/logout');
     logout();
-    router.push('/login');
+    navigate('/login');
   };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (search.trim()) router.push(`/crm?search=${encodeURIComponent(search.trim())}`);
+    if (search.trim()) navigate(`/crm?search=${encodeURIComponent(search.trim())}`);
   };
 
   return (
@@ -87,7 +84,7 @@ export function TopNavbar() {
           <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
         </Button>
 
-        <Link href="/notifications">
+        <Link to="/notifications">
           <Button variant="ghost" size="icon" className="relative">
             <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
@@ -122,7 +119,7 @@ export function TopNavbar() {
               transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
               className="absolute right-0 top-full mt-1 w-48 rounded-lg border bg-popover p-1 shadow-card z-50"
             >
-              <Link href="/settings/profile" className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-surface-soft" onClick={() => setShowUserMenu(false)}>
+              <Link to="/settings/profile" className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-surface-soft" onClick={() => setShowUserMenu(false)}>
                 <User className="h-4 w-4" /> Profile
               </Link>
               <button

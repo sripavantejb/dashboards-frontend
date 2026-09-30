@@ -1,6 +1,6 @@
 # dashboards-frontend
 
-Agency ERP frontend — Next.js dashboard application.
+Agency ERP frontend — React (Vite + React Router) dashboard application.
 
 ## Setup
 

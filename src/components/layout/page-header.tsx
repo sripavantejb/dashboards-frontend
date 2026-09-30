@@ -1,9 +1,6 @@
-'use client';
-
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { motion, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { Link, useLocation } from 'react-router';
 
 interface BreadcrumbItem {
   label: string;
@@ -11,16 +8,16 @@ interface BreadcrumbItem {
 }
 
 export function Breadcrumbs({ items }: { items: BreadcrumbItem[] }) {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
 
   return (
     <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-      <Link href="/dashboard" className="hover:text-foreground transition-colors duration-200">Home</Link>
+      <Link to="/dashboard" className="hover:text-foreground transition-colors duration-200">Home</Link>
       {items.map((item, i) => (
         <span key={i} className="flex items-center gap-2">
           <span>/</span>
           {item.href ? (
-            <Link href={item.href} className={cn('hover:text-foreground transition-colors duration-200', pathname === item.href && 'text-foreground font-medium')}>
+            <Link to={item.href} className={cn('hover:text-foreground transition-colors duration-200', pathname === item.href && 'text-foreground font-medium')}>
               {item.label}
             </Link>
           ) : (

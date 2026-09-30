@@ -1,7 +1,4 @@
-'use client';
-
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useAuthStore, useUIStore } from '@/stores/auth';
 import { Sidebar } from './sidebar';
@@ -9,19 +6,20 @@ import { TopNavbar } from './top-navbar';
 import { AnimatedPage } from '@/components/shared/motion';
 import { ActivityTracker } from '@/components/shared/activity-tracker';
 import { cn } from '@/lib/utils';
+import { useNavigate } from 'react-router';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, hasHydrated } = useAuthStore();
   const { sidebarCollapsed, sidebarOpen, setSidebarOpen } = useUIStore();
-  const router = useRouter();
+  const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     if (!hasHydrated) return;
     if (!isAuthenticated) {
-      router.push('/login');
+      navigate('/login');
     }
-  }, [hasHydrated, isAuthenticated, router]);
+  }, [hasHydrated, isAuthenticated, navigate]);
 
   useEffect(() => {
     const handleResize = () => {
