@@ -93,3 +93,11 @@ export const LEAD_STATUS_COLORS: Record<string, string> = {
   future_follow_up: 'bg-amber-100 text-amber-700',
   dormant: 'bg-gray-100 text-gray-500',
 };
+
+export function formatBytes(bytes: number) {
+  if (!bytes) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const value = bytes / 1024 ** i;
+  return `${value >= 100 || i === 0 ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
+}

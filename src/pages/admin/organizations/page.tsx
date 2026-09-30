@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Building2, Power, Users } from 'lucide-react';
+import { Plus, Building2, Database, Power, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { PageHeader } from '@/components/layout/page-header';
@@ -12,7 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { SimpleModal } from '@/components/shared/simple-modal';
 import { PageLoading, EmptyState } from '@/components/shared/page-states';
-import { formatDate, formatDuration } from '@/lib/utils';
+import { formatBytes, formatDate, formatDuration, formatNumber } from '@/lib/utils';
 import type { AdminOrganization } from '@/types';
 import { Link } from 'react-router';
 import { CompanyMark } from '@/components/company/company-mark';
@@ -49,6 +49,13 @@ export default function AdminOrganizationsPage() {
     queryKey: ['admin-organizations'],
     queryFn: () => api.get<AdminOrganization[]>('/admin/organizations'),
   });
+
+  const { data: usage } = useQuery({
+    queryKey: ['admin-database-usage'],
+    queryFn: () => api.data<{ organizationId: string; mode: 'dedicated' | 'shared'; dbName: string; documents: number; dataSize: number; storageSize: number | null; error: string }[]>('/admin/database-usage'),
+    staleTime: 60_000,
+  });
+  const usageFor = (id: string) => usage?.find((u) => u.organizationId === id);
 
   const createMutation = useMutation({
     mutationFn: () => api.post('/admin/organizations', form),
@@ -123,6 +130,18 @@ export default function AdminOrganizationsPage() {
                       {org.userCount}/{org.maxUsers} users · {formatDuration(org.totalTimeSeconds)} total time
                       {org.planExpiresAt && ` · Plan expires ${formatDate(org.planExpiresAt)}`}
                     </p>
+                    {(() => {
+                      const u = usageFor(org._id);
+                      if (!u) return null;
+                      return (
+                        <p className={`mt-1 flex items-center gap-1 text-xs ${u.error ? 'text-error' : 'text-muted-foreground'}`}>
+                          <Database className="h-3 w-3" />
+                          {u.error
+                            ? u.error
+                            : `${u.mode === 'dedicated' ? `Own database · ${u.dbName}` : 'Shared database'} · ${formatNumber(u.documents)} documents · ${formatBytes(u.storageSize ?? u.dataSize)}${u.storageSize === null ? ' (est.)' : ''}`}
+                        </p>
+                      );
+                    })()}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
