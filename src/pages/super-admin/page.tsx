@@ -1,3 +1,4 @@
+import { PLATFORM_ADMIN_PATH } from '@/lib/admin-routes';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -44,7 +45,7 @@ export default function AdminLoginPage() {
           response.data.refreshToken
         );
         toast.success('Welcome, Platform Admin');
-        navigate('/admin');
+        navigate(PLATFORM_ADMIN_PATH);
       } else {
         toast.error(response.error?.message || 'Login failed');
       }

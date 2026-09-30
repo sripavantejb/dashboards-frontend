@@ -1,5 +1,5 @@
-import { Navigate, Route, Routes } from 'react-router';
-import { ADMIN_LOGIN_PATH, DEFAULT_ADMIN_LOGIN_PATH } from '@/lib/admin-routes';
+import { Navigate, Route, Routes, useLocation } from 'react-router';
+import { ADMIN_LOGIN_PATH, DEFAULT_ADMIN_LOGIN_PATH, PLATFORM_ADMIN_PATH } from '@/lib/admin-routes';
 import DashboardLayout from '@/layouts/dashboard-layout';
 import AdminLayout from '@/layouts/admin-layout';
 import HomePage from '@/pages/home/page';
@@ -45,6 +45,11 @@ import {
 } from '@/pages/os/sales-crm';
 import { CareerJobPage, CareersPage, EgaApplyPage, PortalInvoicePage, PortalPage, ReferPage, TrackPage } from '@/pages/os/public';
 
+function LegacyAdminRedirect() {
+  const { pathname, search } = useLocation();
+  return <Navigate to={`${PLATFORM_ADMIN_PATH}${pathname.slice('/admin'.length)}${search}`} replace />;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -55,7 +60,10 @@ export default function App() {
       {ADMIN_LOGIN_PATH !== DEFAULT_ADMIN_LOGIN_PATH && (
         <Route path={ADMIN_LOGIN_PATH} element={<SuperAdminPage />} />
       )}
-      <Route path="/admin/login" element={<Navigate to="/login" replace />} />
+      {/* Old platform admin URLs */}
+      <Route path="/super-admin" element={<Navigate to={ADMIN_LOGIN_PATH} replace />} />
+      <Route path="/admin/login" element={<Navigate to={ADMIN_LOGIN_PATH} replace />} />
+      <Route path="/admin/*" element={<LegacyAdminRedirect />} />
       <Route path="/ops/*" element={<Navigate to="/login" replace />} />
 
       {/* Public, unauthenticated pages */}
@@ -156,7 +164,7 @@ export default function App() {
         <Route path="/settings/industries" element={<IndustriesPage />} />
       </Route>
 
-      <Route path="/admin" element={<AdminLayout />}>
+      <Route path={PLATFORM_ADMIN_PATH} element={<AdminLayout />}>
         <Route index element={<AdminPage />} />
         <Route path="access-requests" element={<AdminAccessRequestsPage />} />
         <Route path="activity" element={<AdminActivityPage />} />

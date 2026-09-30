@@ -1,3 +1,4 @@
+import { adminPath } from '@/lib/admin-routes';
 import { useQuery } from '@tanstack/react-query';
 import { Building2, Users, Clock, Shield, Activity, Inbox } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -61,35 +62,35 @@ export default function AdminOverviewPage() {
           <CardHeader><CardTitle className="text-base">Access Requests</CardTitle></CardHeader>
           <CardContent className="flex flex-col gap-4">
             <p className="text-sm text-muted-foreground leading-relaxed">Review demo and access requests from the landing page.</p>
-            <Link to="/admin/access-requests"><Button size="sm">View Requests</Button></Link>
+            <Link to={adminPath('access-requests')}><Button size="sm">View Requests</Button></Link>
           </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-base">Companies</CardTitle></CardHeader>
           <CardContent className="flex flex-col gap-4">
             <p className="text-sm text-muted-foreground leading-relaxed">Create agency tenants with ERP admin logins and default lead lists.</p>
-            <Link to="/admin/organizations"><Button size="sm">Manage Companies</Button></Link>
+            <Link to={adminPath('organizations')}><Button size="sm">Manage Companies</Button></Link>
           </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-base">Platform Admins</CardTitle></CardHeader>
           <CardContent className="flex flex-col gap-4">
             <p className="text-sm text-muted-foreground leading-relaxed">Create super admins who can manage the entire SaaS platform.</p>
-            <Link to="/admin/admins"><Button size="sm">Manage Admins</Button></Link>
+            <Link to={adminPath('admins')}><Button size="sm">Manage Admins</Button></Link>
           </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-base">Activity</CardTitle></CardHeader>
           <CardContent className="flex flex-col gap-4">
             <p className="text-sm text-muted-foreground leading-relaxed">Filter activity and time spent by company.</p>
-            <Link to="/admin/activity"><Button size="sm">View Activity</Button></Link>
+            <Link to={adminPath('activity')}><Button size="sm">View Activity</Button></Link>
           </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-base">Settings & Invites</CardTitle></CardHeader>
           <CardContent className="flex flex-col gap-4">
             <p className="text-sm text-muted-foreground leading-relaxed">Invite-only registration, plans, and invite links.</p>
-            <Link to="/admin/settings"><Button size="sm">Platform Settings</Button></Link>
+            <Link to={adminPath('settings')}><Button size="sm">Platform Settings</Button></Link>
           </CardContent>
         </Card>
       </PageGrid>

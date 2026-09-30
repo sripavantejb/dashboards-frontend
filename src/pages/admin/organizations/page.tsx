@@ -1,3 +1,4 @@
+import { adminPath } from '@/lib/admin-routes';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Building2, Database, Power, Users } from 'lucide-react';
@@ -145,7 +146,7 @@ export default function AdminOrganizationsPage() {
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Link to={`/admin/organizations/${org._id}`}>
+                  <Link to={adminPath('organizations', org._id)}>
                     <Button size="sm" variant="default">
                       <Users className="h-3 w-3 mr-1" /> Manage Logins
                     </Button>

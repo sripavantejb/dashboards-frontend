@@ -1,4 +1,5 @@
 import { useAuthStore } from '@/stores/auth';
+import { ADMIN_LOGIN_PATH, PLATFORM_ADMIN_PATH } from '@/lib/admin-routes';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://dashboard-backend-pi-ten.vercel.app/api/v1';
 
@@ -57,8 +58,10 @@ class ApiClient {
         return retryResponse.json();
       }
       useAuthStore.getState().logout();
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-        window.location.href = '/login';
+      if (typeof window !== 'undefined') {
+        const { pathname } = window.location;
+        const loginPath = pathname.startsWith(PLATFORM_ADMIN_PATH) ? ADMIN_LOGIN_PATH : '/login';
+        if (pathname !== loginPath) window.location.href = loginPath;
       }
     }
 

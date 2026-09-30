@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useAuthStore } from '@/stores/auth';
 import { cn } from '@/lib/utils';
-import { ADMIN_LOGIN_PATH } from '@/lib/admin-routes';
+import { ADMIN_LOGIN_PATH, PLATFORM_ADMIN_PATH, adminPath } from '@/lib/admin-routes';
 import { Button } from '@/components/ui/button';
 import {
   LayoutDashboard, Building2, Shield, Activity, ArrowLeft, LogOut, Settings, Inbox,
@@ -10,12 +10,12 @@ import { AnimatedPage } from '@/components/shared/motion';
 import { Link, useLocation, useNavigate } from 'react-router';
 
 const adminNav = [
-  { name: 'Overview', href: '/admin', icon: LayoutDashboard },
-  { name: 'Access Requests', href: '/admin/access-requests', icon: Inbox },
-  { name: 'Companies', href: '/admin/organizations', icon: Building2 },
-  { name: 'Platform Admins', href: '/admin/admins', icon: Shield },
-  { name: 'Activity', href: '/admin/activity', icon: Activity },
-  { name: 'Settings', href: '/admin/settings', icon: Settings },
+  { name: 'Overview', href: PLATFORM_ADMIN_PATH, icon: LayoutDashboard },
+  { name: 'Access Requests', href: adminPath('access-requests'), icon: Inbox },
+  { name: 'Companies', href: adminPath('organizations'), icon: Building2 },
+  { name: 'Platform Admins', href: adminPath('admins'), icon: Shield },
+  { name: 'Activity', href: adminPath('activity'), icon: Activity },
+  { name: 'Settings', href: adminPath('settings'), icon: Settings },
 ];
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
@@ -59,7 +59,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <aside className="hidden md:flex w-[260px] shrink-0 flex-col border-r min-h-[calc(100vh-4rem)] py-4">
           <nav className="space-y-1 px-3">
             {adminNav.map((item) => {
-              const isActive = pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
+              const isActive = pathname === item.href || (item.href !== PLATFORM_ADMIN_PATH && pathname.startsWith(item.href));
               return (
                 <Link
                   key={item.href}

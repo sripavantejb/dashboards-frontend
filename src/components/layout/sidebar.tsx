@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useUIStore, useAuthStore } from '@/stores/auth';
 import { CompanyMark } from '@/components/company/company-mark';
+import { PLATFORM_ADMIN_PATH } from '@/lib/admin-routes';
 import { ChevronLeft, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -94,11 +95,11 @@ export function Sidebar() {
           ))}
           {user?.role === 'super_admin' && (
             <Link
-              to="/admin"
+              to={PLATFORM_ADMIN_PATH}
               onClick={handleNavClick}
               className={cn(
                 'flex items-center gap-3 rounded-md border border-dashed px-3 py-2 text-sm font-medium transition-all duration-200 ease-out',
-                pathname.startsWith('/admin')
+                pathname.startsWith(PLATFORM_ADMIN_PATH)
                   ? 'border-primary bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:bg-surface-soft hover:text-foreground'
               )}

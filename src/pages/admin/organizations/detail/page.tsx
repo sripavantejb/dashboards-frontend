@@ -1,3 +1,4 @@
+import { adminPath } from '@/lib/admin-routes';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Plus, KeyRound, Trash2, Shield } from 'lucide-react';
@@ -88,7 +89,7 @@ export default function CompanyUsersPage() {
         description="Super admin: create and manage ERP login credentials for this company"
         action={
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Link to="/admin/organizations">
+            <Link to={adminPath('organizations')}>
               <Button variant="outline" size="sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
             </Link>
             <Button size="sm" onClick={() => setShowCreate(true)}>

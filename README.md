@@ -12,4 +12,4 @@ npm run dev
 
 ## Super admin login
 
-Platform admin sign-in: `/super-admin` (not linked from the public login page).
+Platform admin: `/platform-admin` (sign in at `/platform-admin/login`, not linked from the public login page). Old `/admin` and `/super-admin` links redirect here.
