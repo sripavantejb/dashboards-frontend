@@ -43,32 +43,36 @@ class ApiClient {
       headers.Authorization = `Bearer ${accessToken}`;
     }
 
-    const response = await fetch(`${API_URL}${endpoint}`, {
-      ...fetchOptions,
-      headers,
-      credentials: 'include',
-    });
+    try {
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        ...fetchOptions,
+        headers,
+        credentials: 'include',
+      });
 
-    if (response.status === 401 && accessToken) {
-      const refreshed = await this.refreshToken();
-      if (refreshed) {
-        headers.Authorization = `Bearer ${localStorage.getItem('accessToken')}`;
-        const retryResponse = await fetch(`${API_URL}${endpoint}`, {
-          ...fetchOptions,
-          headers,
-          credentials: 'include',
-        });
-        return retryResponse.json();
+      if (response.status === 401 && accessToken) {
+        const refreshed = await this.refreshToken();
+        if (refreshed) {
+          headers.Authorization = `Bearer ${localStorage.getItem('accessToken')}`;
+          const retryResponse = await fetch(`${API_URL}${endpoint}`, {
+            ...fetchOptions,
+            headers,
+            credentials: 'include',
+          });
+          return retryResponse.json();
+        }
+        useAuthStore.getState().logout();
+        if (typeof window !== 'undefined') {
+          const { pathname } = window.location;
+          const loginPath = pathname.startsWith(PLATFORM_ADMIN_PATH) ? ADMIN_LOGIN_PATH : '/login';
+          if (pathname !== loginPath) window.location.href = loginPath;
+        }
       }
-      useAuthStore.getState().logout();
-      if (typeof window !== 'undefined') {
-        const { pathname } = window.location;
-        const loginPath = pathname.startsWith(PLATFORM_ADMIN_PATH) ? ADMIN_LOGIN_PATH : '/login';
-        if (pathname !== loginPath) window.location.href = loginPath;
-      }
+
+      return response.json();
+    } catch {
+      return { success: false, error: { message: 'Cannot reach the server. Check that the API is running and try again.' } };
     }
-
-    return response.json();
   }
 
   private async refreshToken(): Promise<boolean> {

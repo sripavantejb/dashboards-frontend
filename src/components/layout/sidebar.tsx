@@ -31,8 +31,13 @@ export function Sidebar() {
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
 
-  const isActive = (href: string) =>
-    pathname === href || (pathname.startsWith(href + '/') && !(href === '/settings' && pathname.startsWith('/settings/')));
+  const allHrefs = useMemo(() => NAV_SECTIONS.flatMap((s) => s.items.map((i) => i.href)), []);
+
+  const isActive = (href: string) => {
+    if (pathname === href) return true;
+    if (!pathname.startsWith(`${href}/`)) return false;
+    return !allHrefs.some((other) => other !== href && other.startsWith(`${href}/`) && (pathname === other || pathname.startsWith(`${other}/`)));
+  };
 
   return (
     <motion.aside
@@ -75,7 +80,7 @@ export function Sidebar() {
                 const active = isActive(item.href);
                 return (
                   <Link
-                    key={item.href}
+                    key={`${section.title}-${item.name}-${item.href}`}
                     to={item.href}
                     onClick={handleNavClick}
                     className={cn(

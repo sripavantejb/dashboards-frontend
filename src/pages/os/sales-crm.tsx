@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router';
-import { ArrowLeft, Check, ChevronDown, Copy, LayoutGrid, List, LogIn, LogOut, Phone, Plus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, Copy, FilterX, LayoutGrid, List, LogIn, LogOut, Phone, Plus, Trash2, X } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/stores/auth';
 import { PageHeader } from '@/components/layout/page-header';
 import { FormActions, FormRow, FormStack, PageGrid } from '@/components/layout/page-layout';
 import { Button } from '@/components/ui/button';
@@ -13,10 +14,10 @@ import { Input } from '@/components/ui/input';
 import { SimpleModal } from '@/components/shared/simple-modal';
 import { PageError, PageLoading } from '@/components/shared/page-states';
 import { FieldInput, type FieldDef } from '@/components/shared/resource-page';
-import { DataTable, KeyValue, ProgressBar, SectionCard, Select, StatCard, StatusPill, Textarea, fmtDate, fmtDateTime, humanize, inr, type Column } from '@/components/shared/os-ui';
+import { DataTable, KeyValue, ProgressBar, SectionCard, Select, StatCard, StatusPill, Textarea, fmtDate, fmtDateTime, humanize, inr, stageSelectClass, type Column } from '@/components/shared/os-ui';
 import { CALL_OUTCOMES, formatStoredDuration } from '@/lib/calling';
 import { CallAnalytics } from '@/components/sales/call-analytics';
-import { CallHistory, LeadCallProvider, useLeadCall } from '@/components/sales/lead-call';
+import { CheckoutModal } from '@/components/sales/checkout-modal';
 
 type Any = Record<string, any>;
 const onErr = (e: Error) => toast.error(e.message);
@@ -72,6 +73,129 @@ function useSalesAction<V = unknown>(fn: (v: V) => Promise<unknown>, success?: s
 const post = (path: string, body: unknown = {}) => api.data(`/sales-crm${path}`, 'POST', body);
 
 const isBdaPortal = (basePath: string) => basePath.includes('/bda');
+
+const inlineSelectClass = 'h-8 w-[8.5rem] min-w-[8.5rem] max-w-[8.5rem] cursor-pointer appearance-none py-0 pl-2 pr-8 text-xs leading-8';
+const rowInputClass = 'box-border h-8 w-[11.5rem] min-w-[11.5rem] max-w-[11.5rem] px-2.5 py-0 text-xs leading-8';
+
+function StageSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: Array<string | { value: string; label: string }>;
+  placeholder?: string;
+  className?: string;
+}) {
+  return (
+    <Select className={cn(inlineSelectClass, stageSelectClass(value), className)} value={value} onChange={(e) => onChange(e.target.value)}>
+      {placeholder !== undefined && <option value="">{placeholder}</option>}
+      {options.map((o) => {
+        const v = typeof o === 'string' ? o : o.value;
+        const label = typeof o === 'string' ? humanize(o) : o.label;
+        return <option key={v} value={v}>{label}</option>;
+      })}
+    </Select>
+  );
+}
+
+function ymd(d: Date) {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function presetRange(preset: string) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const to = ymd(today);
+  if (preset === 'today') return { from: to, to };
+  if (preset === 'yesterday') {
+    const y = new Date(today);
+    y.setDate(y.getDate() - 1);
+    const day = ymd(y);
+    return { from: day, to: day };
+  }
+  if (preset === '7d') {
+    const s = new Date(today);
+    s.setDate(s.getDate() - 6);
+    return { from: ymd(s), to };
+  }
+  if (preset === '30d') {
+    const s = new Date(today);
+    s.setDate(s.getDate() - 29);
+    return { from: ymd(s), to };
+  }
+  if (preset === 'week') {
+    const s = new Date(today);
+    s.setDate(s.getDate() - ((s.getDay() + 6) % 7));
+    return { from: ymd(s), to };
+  }
+  if (preset === 'month') return { from: ymd(new Date(today.getFullYear(), today.getMonth(), 1)), to };
+  return { from: '', to: '' };
+}
+
+const EMPTY_LEAD_FILTER = {
+  search: '',
+  status: 'all',
+  temperature: '',
+  source: '',
+  priority: '',
+  datePreset: 'all',
+  dateField: 'createdAt',
+  from: '',
+  to: '',
+  followUp: '',
+  dealStage: '',
+  assignedEmployeeId: '',
+  unassigned: false,
+};
+
+function FilterField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1">
+      <span className="h-4 truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function toDatetimeLocal(d?: string | Date | null) {
+  if (!d) return '';
+  const dt = new Date(d);
+  if (Number.isNaN(+dt)) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}T${p(dt.getHours())}:${p(dt.getMinutes())}`;
+}
+
+function InlineNoteCell({ id, notes }: { id: string; notes?: string }) {
+  const [text, setText] = useState(notes || '');
+  const last = useRef(notes || '');
+  useEffect(() => {
+    setText(notes || '');
+    last.current = notes || '';
+  }, [id, notes]);
+  const save = useSalesAction((v: string) => api.data(`/sales-crm/leads/${id}`, 'PATCH', { notes: v }), 'Note saved');
+  return (
+    <Input
+      className="box-border h-8 w-[11.5rem] min-w-[11.5rem] max-w-[11.5rem] px-2.5 py-0 text-xs leading-8"
+      placeholder="Add note…"
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+        const next = text.trim();
+        if (next === last.current.trim()) return;
+        last.current = next;
+        save.mutate(next);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+      }}
+    />
+  );
+}
 
 function RightInspector({ open, onClose, children }: { open: boolean; onClose: () => void; children: React.ReactNode }) {
   const reduceMotion = useReducedMotion();
@@ -165,7 +289,7 @@ const TABS: { to: string; label: string; show: (m: SalesMe) => boolean }[] = [
   { to: 'tasks', label: 'Tasks', show: (m) => m.modules['tasks.management'] },
   { to: 'calendar', label: 'Calendar', show: (m) => m.modules['tasks.calendar'] },
   { to: 'approvals', label: 'Approvals', show: (m) => m.isSalesAdmin || m.modules['admin.approvals'] },
-  { to: 'attendance', label: 'Attendance', show: (m) => m.isSalesAdmin || m.modules['workforce.attendance_sync'] },
+  { to: 'attendance', label: 'Attendance', show: () => true },
   { to: 'work-status', label: 'Work status', show: (m) => m.isSalesAdmin || m.modules['perf.daily_work_status'] },
   { to: 'targets', label: 'Targets', show: (m) => m.isSalesAdmin || m.modules['perf.targets'] },
   { to: 'performance', label: 'Performance', show: (m) => m.isSalesAdmin || m.modules['perf.performance'] || m.modules['perf.productivity'] || m.modules['sales.forecast'] },
@@ -423,39 +547,212 @@ const LEAD_FIELDS: FieldDef[] = [
 
 export function SalesLeadsPage() {
   const me = useMe();
-  const basePath = me.basePath;
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const drawer = isBdaPortal(basePath);
+  const drawer = isBdaPortal(me.basePath);
   const selectedId = searchParams.get('lead');
-  const [filter, setFilter] = useState({ status: 'all', temperature: '', search: '', unassigned: false });
-  const qs = new URLSearchParams({ status: filter.status, ...(filter.temperature && { temperature: filter.temperature }), ...(filter.search && { search: filter.search }), ...(filter.unassigned && { unassigned: 'true' }) }).toString();
+  const [filter, setFilter] = useState(EMPTY_LEAD_FILTER);
+  const dates = filter.datePreset === 'custom' ? { from: filter.from, to: filter.to } : presetRange(filter.datePreset);
+  const qs = new URLSearchParams({
+    status: filter.status,
+    ...(filter.temperature && { temperature: filter.temperature }),
+    ...(filter.search && { search: filter.search }),
+    ...(filter.source && { source: filter.source }),
+    ...(filter.priority && { priority: filter.priority }),
+    ...(filter.unassigned && { unassigned: 'true' }),
+    ...(filter.assignedEmployeeId && { assignedEmployeeId: filter.assignedEmployeeId }),
+    ...(filter.followUp && { followUp: filter.followUp }),
+    ...(filter.dealStage && { dealStage: filter.dealStage }),
+    ...((dates.from || dates.to) && { dateField: filter.dateField, ...(dates.from && { from: dates.from }), ...(dates.to && { to: dates.to }) }),
+  }).toString();
   const q = useSales<Any[]>(`/leads?${qs}`);
+  const dealsQ = useSales<Any[]>('/deals?stage=all', Boolean(me.modules['sales.deals']));
+  const team = useSales<Any[]>('/employees', me.isSalesAdmin);
+  const dealByLead = useMemo(() => {
+    const map = new Map<string, Any>();
+    for (const d of dealsQ.data || []) {
+      const lid = String(d.leadId?._id || d.leadId || '');
+      if (lid && !map.has(lid)) map.set(lid, d);
+    }
+    return map;
+  }, [dealsQ.data]);
   const [open, setOpen] = useState(false);
   const create = useSalesAction((v: Any) => post('/leads', v), 'Lead created', () => setOpen(false));
-  const openLead = (id: string) => {
-    if (drawer) setSearchParams({ lead: id });
-    else navigate(`${basePath}/leads/${id}`);
-  };
+  const setStatus = useSalesAction((v: { id: string; status: string }) => post(`/leads/${v.id}/status`, { status: v.status }), 'Status updated');
+  const setTemp = useSalesAction((v: { id: string; temperature: string }) => api.data(`/sales-crm/leads/${v.id}`, 'PATCH', { temperature: v.temperature }), 'Temperature updated');
+  const logCall = useSalesAction((v: { id: string; outcome: string }) => post('/calls', { leadId: v.id, outcome: v.outcome }), 'Call logged');
+  const scheduleCb = useSalesAction((v: { id: string; dueAt: string }) => post('/follow-ups', { leadId: v.id, dueAt: v.dueAt, type: 'call', notes: 'Callback' }), 'Callback scheduled');
+  const moveDeal = useSalesAction((v: { id: string; stage: string }) => post(`/deals/${v.id}/stage`, { stage: v.stage }), 'Deal stage updated');
+  const startDeal = useSalesAction(async (v: { leadId: string; name: string; stage: string }) => {
+    const created = await post('/deals', { dealName: v.name, leadId: v.leadId, probability: 10, priority: 'medium' }) as Any;
+    if (v.stage && v.stage !== 'new') await post(`/deals/${created._id}/stage`, { stage: v.stage });
+    return created;
+  }, 'Deal stage updated');
+  const activeFilters = [
+    filter.status !== 'all', filter.temperature, filter.source, filter.priority, filter.datePreset !== 'all',
+    filter.followUp, filter.dealStage, filter.assignedEmployeeId, filter.unassigned, filter.search,
+  ].filter(Boolean).length;
+  const patchFilter = (next: Partial<typeof EMPTY_LEAD_FILTER>) => setFilter((s) => ({ ...s, ...next }));
+  const filterSelect = 'h-9 w-full min-w-0 py-0 pl-2.5 pr-8 text-sm leading-9';
   return (
     <>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <Input placeholder="Search name, company, phone…" value={filter.search} onChange={(e) => setFilter({ ...filter, search: e.target.value })} className="sm:max-w-xs" />
-        <Select className="sm:w-40" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}><option value="all">All statuses</option>{LEAD_STATUSES.map((s) => <option key={s} value={s}>{humanize(s)}</option>)}</Select>
-        <Select className="sm:w-36" value={filter.temperature} onChange={(e) => setFilter({ ...filter, temperature: e.target.value })}><option value="">Any temp.</option>{['hot', 'warm', 'cold'].map((s) => <option key={s} value={s}>{humanize(s)}</option>)}</Select>
-        {me.isSalesAdmin && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={filter.unassigned} onChange={(e) => setFilter({ ...filter, unassigned: e.target.checked })} />Unassigned</label>}
-        <Button className="sm:ml-auto" onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New lead</Button>
+      <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 shadow-card">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Input placeholder="Search name, company, phone…" value={filter.search} onChange={(e) => patchFilter({ search: e.target.value })} className="h-9 sm:max-w-xs" />
+          {activeFilters > 0 && (
+            <Button variant="ghost" size="sm" className="h-9" onClick={() => setFilter(EMPTY_LEAD_FILTER)}>
+              <FilterX className="mr-1.5 h-4 w-4" />Clear filters ({activeFilters})
+            </Button>
+          )}
+          <Button className="h-9 sm:ml-auto" onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New lead</Button>
+        </div>
+        <div className="grid grid-cols-2 gap-x-2 gap-y-2 sm:grid-cols-4 xl:grid-cols-8">
+          <FilterField label="Status">
+            <Select className={filterSelect} value={filter.status} onChange={(e) => patchFilter({ status: e.target.value })}>
+              <option value="all">All statuses</option>
+              {LEAD_STATUSES.map((s) => <option key={s} value={s}>{humanize(s)}</option>)}
+            </Select>
+          </FilterField>
+          <FilterField label="Temperature">
+            <Select className={filterSelect} value={filter.temperature} onChange={(e) => patchFilter({ temperature: e.target.value })}>
+              <option value="">Any temp.</option>
+              {['hot', 'warm', 'cold'].map((s) => <option key={s} value={s}>{humanize(s)}</option>)}
+            </Select>
+          </FilterField>
+          <FilterField label="Source">
+            <Select className={filterSelect} value={filter.source} onChange={(e) => patchFilter({ source: e.target.value })}>
+              <option value="">Any source</option>
+              {LEAD_SOURCES.map((s) => <option key={s} value={s}>{humanize(s)}</option>)}
+            </Select>
+          </FilterField>
+          <FilterField label="Priority">
+            <Select className={filterSelect} value={filter.priority} onChange={(e) => patchFilter({ priority: e.target.value })}>
+              <option value="">Any priority</option>
+              {PRIORITIES.map((s) => <option key={s} value={s}>{humanize(s)}</option>)}
+            </Select>
+          </FilterField>
+          <FilterField label="Date field">
+            <Select className={filterSelect} value={filter.dateField} onChange={(e) => patchFilter({ dateField: e.target.value })}>
+              <option value="createdAt">Created</option>
+              <option value="lastContactedAt">Last contacted</option>
+              <option value="nextFollowUpAt">Callback</option>
+            </Select>
+          </FilterField>
+          <FilterField label="Date range">
+            <Select className={filterSelect} value={filter.datePreset} onChange={(e) => patchFilter({ datePreset: e.target.value })}>
+              <option value="all">All time</option>
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="week">This week</option>
+              <option value="month">This month</option>
+              <option value="7d">Last 7 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="custom">Custom</option>
+            </Select>
+          </FilterField>
+          {filter.datePreset === 'custom' && (
+            <>
+              <FilterField label="From">
+                <Input type="date" className="h-9 w-full py-0 text-sm leading-9" value={filter.from} onChange={(e) => patchFilter({ from: e.target.value })} />
+              </FilterField>
+              <FilterField label="To">
+                <Input type="date" className="h-9 w-full py-0 text-sm leading-9" value={filter.to} onChange={(e) => patchFilter({ to: e.target.value })} />
+              </FilterField>
+            </>
+          )}
+          <FilterField label="Follow-up">
+            <Select className={filterSelect} value={filter.followUp} onChange={(e) => patchFilter({ followUp: e.target.value })}>
+              <option value="">Any follow-up</option>
+              <option value="overdue">Overdue</option>
+              <option value="today">Due today</option>
+              <option value="upcoming">Upcoming</option>
+              <option value="none">Not scheduled</option>
+            </Select>
+          </FilterField>
+          {me.modules['sales.deals'] && (
+            <FilterField label="Deal stage">
+              <Select className={filterSelect} value={filter.dealStage} onChange={(e) => patchFilter({ dealStage: e.target.value })}>
+                <option value="">Any deal</option>
+                <option value="none">No deal yet</option>
+                {DEAL_STAGES.map((s) => <option key={s} value={s}>{humanize(s)}</option>)}
+              </Select>
+            </FilterField>
+          )}
+          {me.isSalesAdmin && (
+            <FilterField label="Owner">
+              <Select className={filterSelect} value={filter.unassigned ? 'unassigned' : filter.assignedEmployeeId} onChange={(e) => {
+                const v = e.target.value;
+                if (v === 'unassigned') patchFilter({ unassigned: true, assignedEmployeeId: '' });
+                else patchFilter({ unassigned: false, assignedEmployeeId: v });
+              }}>
+                <option value="">Anyone</option>
+                <option value="unassigned">Unassigned</option>
+                {(team.data || []).filter((e) => e.status === 'active').map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}
+              </Select>
+            </FilterField>
+          )}
+        </div>
       </div>
       <Query q={q}>
         {(rows) => (
-          <DataTable rows={rows} selectedId={selectedId || undefined} onRowClick={(r) => openLead(r._id)} empty="No leads match."
+          <DataTable rows={rows} selectedId={selectedId || undefined} compact empty="No leads match."
             columns={[
-              { key: 'contactPerson', header: 'Lead', render: (r) => <div><p className="font-medium">{r.contactPerson}</p><p className="text-xs text-muted-foreground">{r.company || r.phone || '—'}</p></div> },
-              { key: 'source', header: 'Source', render: (r) => humanize(r.source) },
-              { key: 'temperature', header: 'Temp.', render: (r) => <StatusPill value={r.temperature} /> },
-              { key: 'status', header: 'Status', render: (r) => <StatusPill value={r.status} /> },
+              { key: 'contactPerson', header: 'Lead', render: (r) => (
+                <div>
+                  <p className="font-medium">{r.contactPerson}</p>
+                  <p className="text-xs text-muted-foreground">{r.company || r.phone || '—'}</p>
+                </div>
+              ) },
+              { key: 'status', header: 'Status', className: 'w-px', render: (r) => (
+                <StageSelect value={r.status} options={LEAD_STATUSES} onChange={(status) => setStatus.mutate({ id: r._id, status })} />
+              ) },
+              { key: 'temperature', header: 'Temp.', className: 'w-px', render: (r) => (
+                <StageSelect value={r.temperature || 'warm'} options={['hot', 'warm', 'cold']} onChange={(temperature) => setTemp.mutate({ id: r._id, temperature })} />
+              ) },
+              ...(me.modules['comm.calls'] ? [{
+                key: 'call', header: 'Call', className: 'w-px', render: (r: Any) => (
+                  <StageSelect
+                    value=""
+                    placeholder="Log call…"
+                    options={[{ value: 'connected', label: 'Connected' }, ...CALL_OUTCOMES.map((o) => ({ value: o.value, label: o.label }))]}
+                    onChange={(outcome) => outcome && logCall.mutate({ id: r._id, outcome })}
+                  />
+                ),
+              }] : []),
+              ...(me.modules['sales.deals'] ? [{
+                key: 'dealStage', header: 'Deal stage', className: 'w-px', render: (r: Any) => {
+                  const deal = dealByLead.get(r._id);
+                  return (
+                    <StageSelect
+                      value={deal?.stage || ''}
+                      placeholder="Set stage…"
+                      options={DEAL_STAGES}
+                      onChange={(stage) => {
+                        if (!stage) return;
+                        if (deal) moveDeal.mutate({ id: deal._id, stage });
+                        else startDeal.mutate({ leadId: r._id, name: r.company || r.contactPerson, stage });
+                      }}
+                    />
+                  );
+                },
+              }] : []),
+              { key: 'notes', header: 'Notes', render: (r) => <InlineNoteCell id={r._id} notes={r.notes} /> },
+              ...(me.modules['comm.followups'] ? [{
+                key: 'callback', header: 'Callback', className: 'w-px', render: (r: Any) => (
+                  <Input
+                    type="datetime-local"
+                    className={rowInputClass}
+                    defaultValue={toDatetimeLocal(r.nextFollowUpAt)}
+                    onBlur={(e) => {
+                      if (!e.target.value) return;
+                      const iso = new Date(e.target.value).toISOString();
+                      const prev = r.nextFollowUpAt ? new Date(r.nextFollowUpAt).toISOString() : '';
+                      if (iso === prev) return;
+                      scheduleCb.mutate({ id: r._id, dueAt: iso });
+                    }}
+                  />
+                ),
+              }] : []),
               ...(me.isSalesAdmin ? [{ key: 'assignedName', header: 'Owner', render: (r: Any) => r.assignedName || <span className="text-amber-600">Unassigned</span> }] : []),
-              { key: 'nextFollowUpAt', header: 'Next follow-up', render: (r) => fmtDate(r.nextFollowUpAt) },
             ] as Column<Any>[]} />
         )}
       </Query>
@@ -523,7 +820,7 @@ function LeadInspector({ id, onClose }: { id: string; onClose?: () => void }) {
           </div>
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
           <div className="flex flex-wrap gap-2">
-            <Select className="w-36" value={lead.status} onChange={(e) => status.mutate(e.target.value)}>{LEAD_STATUSES.map((s) => <option key={s} value={s}>{humanize(s)}</option>)}</Select>
+            <StageSelect className="w-36" value={lead.status} options={LEAD_STATUSES} onChange={(s) => status.mutate(s)} />
             {me.isSalesAdmin && (
               <Select className="w-44" value={lead.assignedEmployeeId || ''} onChange={(e) => e.target.value && assign.mutate(e.target.value)}>
                 <option value="">Assign to…</option>
@@ -707,12 +1004,14 @@ export function SalesDealsPage() {
           const pipelineValue = rows.reduce((t, d) => t + (Number(d.value) || 0), 0);
           const openCount = rows.filter((d) => !['won', 'lost'].includes(d.stage)).length;
           return view === 'list' ? (
-            <DataTable rows={rows} onRowClick={(r) => navigate(`${basePath}/deals/${r._id}`)} empty="No deals yet — create your first opportunity."
+            <DataTable rows={rows} empty="No deals yet — create your first opportunity."
               columns={[
                 { key: 'dealName', header: 'Deal', render: (r) => <div><p className="font-medium">{r.dealName}</p><p className="text-xs text-muted-foreground">{leadLabel(r.leadId)}</p></div> },
                 { key: 'value', header: 'Value', render: (r) => inr(r.value) },
                 { key: 'probability', header: 'Prob.', render: (r) => `${r.probability || 0}%` },
-                { key: 'stage', header: 'Stage', render: (r) => <StatusPill value={r.stage} /> },
+                { key: 'stage', header: 'Stage', className: 'w-px', render: (r) => (
+                  <StageSelect value={r.stage} options={DEAL_STAGES} onChange={(stage) => move.mutate({ id: r._id, stage })} />
+                ) },
                 { key: 'expectedCloseDate', header: 'Close by', render: (r) => fmtDate(r.expectedCloseDate) },
               ]} />
           ) : (
@@ -1240,28 +1539,50 @@ export function SalesApprovalsPage() {
 
 // ---------------------------------------------------------------- attendance + work status
 const timeOf = (d?: string) => (d ? new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—');
+const fmtMins = (n?: number | null) => {
+  if (n == null) return '—';
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  return h ? `${h}h ${m}m` : `${m}m`;
+};
 
 export function SalesAttendancePage() {
   const me = useMe();
   const [date, setDate] = useState('');
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const q = useSales<Any>(`/attendance${me.isSalesAdmin && date ? `?date=${date}` : ''}`);
+  const history = useSales<{ rows: Any[] }>('/attendance/history', me.isSalesAdmin);
   const checkIn = useSalesAction(() => post('/attendance/check-in'), 'Checked in');
-  const checkOut = useSalesAction(() => post('/attendance/check-out'), 'Checked out');
   return (
     <Query q={q}>
       {(d) => me.isSalesAdmin ? (
         <>
+          <PageHeader title="Attendance & timings" description="Today’s check-in/out plus the last 30 days of BDA hours." />
           <div className="flex items-center gap-3">
             <Input type="date" className="w-44" value={date || d.date} onChange={(e) => setDate(e.target.value)} />
             <span className="text-sm text-muted-foreground">{d.present} of {d.total} checked in</span>
           </div>
-          <DataTable rows={d.rows.map((r: Any) => ({ ...r, _id: r.employeeId }))} empty="No active employees."
+          <DataTable rows={d.rows.map((r: Any) => ({ ...r, _id: r.employeeId }))} empty="No BDAs yet. Create a sales login from BDA settings."
             columns={[
               { key: 'name', header: 'Employee', render: (r) => <div><p className="font-medium">{r.name}</p><p className="font-mono text-xs text-muted-foreground">{r.employeeCode}</p></div> },
               { key: 'status', header: 'Status', render: (r) => <StatusPill value={r.status} /> },
               { key: 'checkInAt', header: 'Check in', render: (r) => timeOf(r.checkInAt) },
               { key: 'checkOutAt', header: 'Check out', render: (r) => timeOf(r.checkOutAt) },
+              { key: 'durationMinutes', header: 'Hours', render: (r) => fmtMins(r.durationMinutes) },
+              { key: 'remarks', header: 'Remarks', render: (r) => <span className="line-clamp-2 max-w-xs text-xs">{r.remarks || '—'}</span> },
             ]} />
+          <SectionCard title="Timing history (30 days)">
+            <DataTable rows={history.data?.rows || []} empty="No attendance recorded yet."
+              columns={[
+                { key: 'date', header: 'Date', render: (r) => fmtDate(r.date) },
+                { key: 'name', header: 'BDA', render: (r) => <div><p className="font-medium">{r.name}</p><p className="font-mono text-xs text-muted-foreground">{r.employeeCode}</p></div> },
+                { key: 'status', header: 'Status', render: (r) => <StatusPill value={r.status} /> },
+                { key: 'checkInAt', header: 'In', render: (r) => timeOf(r.checkInAt) },
+                { key: 'checkOutAt', header: 'Out', render: (r) => timeOf(r.checkOutAt) },
+                { key: 'durationMinutes', header: 'Hours', render: (r) => fmtMins(r.durationMinutes) },
+                { key: 'remarks', header: 'Remarks', render: (r) => <span className="line-clamp-2 max-w-xs text-xs">{r.remarks || '—'}</span> },
+              ]} />
+          </SectionCard>
         </>
       ) : (
         <>
@@ -1270,9 +1591,10 @@ export function SalesAttendancePage() {
               <div className="text-sm"><span className="text-muted-foreground">In:</span> {timeOf(d.today?.checkInAt)} <span className="ml-3 text-muted-foreground">Out:</span> {timeOf(d.today?.checkOutAt)}</div>
               <div className="ml-auto flex gap-2">
                 {!d.today?.checkInAt && <Button onClick={() => checkIn.mutate(undefined)} disabled={checkIn.isPending}><LogIn className="mr-2 h-4 w-4" />Check in</Button>}
-                {d.today?.checkInAt && !d.today?.checkOutAt && <Button variant="outline" onClick={() => checkOut.mutate(undefined)} disabled={checkOut.isPending}><LogOut className="mr-2 h-4 w-4" />Check out</Button>}
+                {!d.today?.checkOutAt && <Button variant="outline" onClick={() => setCheckoutOpen(true)}><LogOut className="mr-2 h-4 w-4" />Check out</Button>}
               </div>
             </div>
+            {d.today?.checkoutRemarks && <p className="mt-3 text-sm text-muted-foreground">Remarks: {d.today.checkoutRemarks}</p>}
           </SectionCard>
           <DataTable rows={d.history} empty="No attendance yet."
             columns={[
@@ -1280,7 +1602,10 @@ export function SalesAttendancePage() {
               { key: 'status', header: 'Status', render: (r) => <StatusPill value={r.status} /> },
               { key: 'checkInAt', header: 'In', render: (r) => timeOf(r.checkInAt) },
               { key: 'checkOutAt', header: 'Out', render: (r) => timeOf(r.checkOutAt) },
+              { key: 'hours', header: 'Hours', render: (r) => fmtMins(r.checkInAt && r.checkOutAt ? Math.round((+new Date(r.checkOutAt) - +new Date(r.checkInAt)) / 60_000) : null) },
+              { key: 'checkoutRemarks', header: 'Remarks', render: (r) => <span className="line-clamp-2 max-w-xs text-xs">{r.checkoutRemarks || '—'}</span> },
             ]} />
+          <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
         </>
       )}
     </Query>
@@ -1510,12 +1835,30 @@ export function SalesAnalyticsPage() {
 export function SalesTeamPage() {
   const navigate = useNavigate();
   const basePath = useMe().basePath;
+  const slug = useAuthStore((s) => s.organization?.slug);
+  const bdaLoginPath = `/${slug || 'company'}/bda`;
   const q = useSales<Any[]>('/employees');
   const [open, setOpen] = useState(false);
   const create = useSalesAction((v: Any) => post('/employees', v), 'Employee added', () => setOpen(false));
   return (
     <>
-      <div className="flex justify-end"><Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Add employee</Button></div>
+      <PageHeader
+        title="BDA team & access"
+        description="Create BDA logins, then open a person to turn modules on or off. BDAs sign in at the branded portal."
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(`${window.location.origin}${bdaLoginPath}`);
+                toast.success('BDA login URL copied');
+              } catch { toast.error('Could not copy URL'); }
+            }}>
+              <Copy className="mr-2 h-4 w-4" />Copy BDA URL
+            </Button>
+            <Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Add BDA login</Button>
+          </div>
+        }
+      />
       <Query q={q}>
         {(rows) => (
           <DataTable rows={rows} empty="No employees yet." onRowClick={(r) => navigate(`${basePath}/team/${r._id}`)}
@@ -1610,14 +1953,19 @@ export function SalesEmployeeDetailPage() {
 
 // ---------------------------------------------------------------- BDA My Day + Email/WhatsApp
 export function SalesMyDayPage() {
-  const basePath = useMe().basePath;
+  const me = useMe();
+  const basePath = me.basePath;
   const q = useSales<Any>('/my-day');
+  const attendance = useSales<Any>('/attendance');
   const [escalateOpen, setEscalateOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const checkIn = useSalesAction(() => post('/attendance/check-in'), 'Checked in');
   const escalate = useSalesAction(
     (v: Any) => post('/escalate', v),
     'Escalation sent to your managers',
     () => setEscalateOpen(false)
   );
+  const today = attendance.data?.today;
   return (
     <Query q={q}>
       {(d) => (
@@ -1626,7 +1974,19 @@ export function SalesMyDayPage() {
             title="My Day"
             description={`Focus queue for ${d.date}`}
             action={
-              <Button variant="outline" onClick={() => setEscalateOpen(true)}>Ask manager for help</Button>
+              <div className="flex flex-wrap gap-2">
+                {!today?.checkInAt && (
+                  <Button onClick={() => checkIn.mutate(undefined)} disabled={checkIn.isPending}>
+                    <LogIn className="mr-2 h-4 w-4" />Check in
+                  </Button>
+                )}
+                {!today?.checkOutAt && (
+                  <Button variant="outline" onClick={() => setCheckoutOpen(true)}>
+                    <LogOut className="mr-2 h-4 w-4" />Check out
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => setEscalateOpen(true)}>Ask manager for help</Button>
+              </div>
             }
           />
           <PageGrid cols="4">
@@ -1677,6 +2037,7 @@ export function SalesMyDayPage() {
               { name: 'detail', label: 'Details', type: 'textarea', placeholder: 'Context your manager should know' },
             ]}
           />
+          <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
         </>
       )}
     </Query>

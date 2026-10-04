@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Table, Users, Kanban, ListTodo, FileText, Archive, Building2, Link2, FolderKanban,
   CheckSquare, CalendarDays, FileStack, TrendingUp, ArrowLeftRight, Receipt, Wallet, Repeat, AlertCircle,
   KeyRound, Activity, BarChart3, Settings, UserCog, Layers, Factory, Gift, Briefcase, Inbox, Sparkles, Mail,
-  Store, Phone, Import, Zap, Bell, Newspaper, Images, BookOpen, CalendarRange, Umbrella, ScrollText, type LucideIcon,
+  Store, Phone, Import, Zap, Bell, Newspaper, Images, BookOpen, CalendarRange, Umbrella, ScrollText, UserPlus, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -27,11 +27,22 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    title: 'Sales team (BDA)',
+    items: [
+      { name: 'BDA settings', href: '/bda-settings', icon: UserPlus, permission: 'users:write' },
+      { name: 'BDA logins', href: '/employees', icon: UserCog, permission: 'users:write' },
+      { name: 'BDA team & access', href: '/sales-crm/team', icon: Users, permission: 'sales_crm:write' },
+      { name: 'BDA activity', href: '/dashboard#sales-team-bda', icon: Activity, permission: 'sales_crm:read' },
+      { name: 'BDA attendance', href: '/sales-crm/attendance', icon: CalendarDays, permission: 'sales_crm:read' },
+      { name: 'Sales CRM', href: '/sales-crm', icon: Store, permission: 'sales_crm:read' },
+    ],
+  },
+  {
     title: 'Tracker',
     items: [{ name: 'Master Tracker', href: '/tracker', icon: Table, permission: 'tracker:write' }],
   },
   {
-    title: 'Sales (agency)',
+    title: 'Editco internal clients',
     items: [
       { name: 'Leads', href: '/crm', icon: Users, permission: 'leads:read' },
       { name: 'Pipeline', href: '/pipeline', icon: Kanban, permission: 'leads:read' },
@@ -92,10 +103,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { name: 'Newsletter', href: '/growth/newsletter', icon: Mail, permission: 'growth:read' },
       { name: 'Magazine', href: '/growth/magazine', icon: Newspaper, permission: 'growth:read' },
     ],
-  },
-  {
-    title: 'Sales team (BDA)',
-    items: [{ name: 'Sales CRM', href: '/sales-crm', icon: Store, permission: 'sales_crm:read' }],
   },
   {
     title: 'Admin',

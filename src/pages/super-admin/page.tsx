@@ -67,7 +67,7 @@ export default function AdminLoginPage() {
       formTitle="Admin access starts here"
       formDescription="Use your super admin email and password."
       emailLabel="Admin email"
-      emailPlaceholder="superadmin@agencyerp.com"
+      emailPlaceholder="superadmin@editcomedia.com"
       submitLabel="Sign in"
       loading={loading}
       onSubmit={handleSubmit(onSubmit)}

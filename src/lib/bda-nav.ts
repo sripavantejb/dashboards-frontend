@@ -33,7 +33,9 @@ export const BDA_NAV_SECTIONS: BdaNavSection[] = [
   {
     title: 'Pipeline',
     items: [
-      { name: 'Leads', to: 'leads', icon: Users, anyModules: ['leads.management', 'sales.deals', 'customers.management'] },
+      { name: 'Leads', to: 'leads', icon: Users, module: 'leads.management' },
+      { name: 'Deals', to: 'deals', icon: Kanban, module: 'sales.deals' },
+      { name: 'Customers', to: 'customers', icon: Building2, module: 'customers.management' },
     ],
   },
   {
@@ -68,7 +70,7 @@ export const BDA_NAV_SECTIONS: BdaNavSection[] = [
       { name: 'Performance', to: 'performance', icon: BarChart3, anyModules: ['perf.performance', 'perf.productivity', 'sales.forecast'] },
       { name: 'Leaderboard', to: 'leaderboard', icon: Trophy, module: 'perf.leaderboard' },
       { name: 'Work status', to: 'work-status', icon: ClipboardList, module: 'perf.daily_work_status' },
-      { name: 'Attendance', to: 'attendance', icon: Clock, module: 'workforce.attendance_sync' },
+      { name: 'Attendance', to: 'attendance', icon: Clock },
     ],
   },
 ];

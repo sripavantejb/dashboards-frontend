@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
-import { Plus, Trash2, ExternalLink } from 'lucide-react';
+import { Plus, Trash2, ExternalLink, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth';
@@ -56,15 +56,23 @@ export default function EmployeesPage() {
       <PageHeader
         title="Employees"
         description={isCompanyAdmin
-          ? 'Logins for your company. Role “sales” opens the BDA portal. Manage modules and territories in Sales CRM → Team.'
+          ? 'Create BDA (sales) logins and other company users. BDAs sign in at the branded portal URL. Manage modules in BDA settings or Sales CRM → Team.'
           : 'Team members in your organization'}
         action={isCompanyAdmin ? (
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(`${window.location.origin}${bdaLoginPath}`);
+                toast.success('BDA login URL copied');
+              } catch { toast.error('Could not copy URL'); }
+            }}>
+              <Copy className="mr-2 h-4 w-4" />Copy BDA URL
+            </Button>
             <Button variant="outline" className="w-full sm:w-auto" asChild>
-              <Link to="/sales-crm/team"><ExternalLink className="mr-2 h-4 w-4" />Sales team & modules</Link>
+              <Link to="/bda-settings"><ExternalLink className="mr-2 h-4 w-4" />BDA settings</Link>
             </Button>
             <Button className="w-full sm:w-auto" onClick={() => setShowNew(true)}>
-              <Plus className="h-4 w-4 mr-2" /> Add Employee Login
+              <Plus className="h-4 w-4 mr-2" />Create BDA / employee login
             </Button>
           </div>
         ) : undefined}

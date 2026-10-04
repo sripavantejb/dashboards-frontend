@@ -13,6 +13,8 @@ import { ActivityTracker } from '@/components/shared/activity-tracker';
 import { AnimatedPage } from '@/components/shared/motion';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { StickyAlerts } from '@/components/notifications/sticky-alerts';
+import { CheckoutModal } from '@/components/sales/checkout-modal';
 
 interface BdaShellProps {
   children: React.ReactNode;
@@ -29,6 +31,8 @@ export function BdaShell({ children, modules, employeeCode, displayName, basePat
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [signOutAfterCheckout, setSignOutAfterCheckout] = useState(false);
   const orgName = organization?.name || 'Sales';
 
   useEffect(() => {
@@ -57,8 +61,20 @@ export function BdaShell({ children, modules, employeeCode, displayName, basePat
   });
   const unread = notifData?.data?.count || 0;
 
+  const attendance = useQuery({
+    queryKey: ['sales', '/attendance'],
+    queryFn: () => api.data<{ today?: { checkInAt?: string; checkOutAt?: string } | null }>('/sales-crm/attendance'),
+    refetchInterval: 60_000,
+  });
+  const needsCheckout = !attendance.data?.today?.checkOutAt;
+
   const closeMobile = () => setMobileOpen(false);
   const loginPath = `/${orgSlug}/bda`;
+
+  const finishSignOut = () => {
+    logout();
+    navigate(loginPath);
+  };
 
   const sidebar = (
     <aside
@@ -139,8 +155,12 @@ export function BdaShell({ children, modules, employeeCode, displayName, basePat
           size="sm"
           className={cn('w-full border-black/10 bg-white/70 hover:bg-white', sidebarCollapsed && 'px-0')}
           onClick={() => {
-            logout();
-            navigate(loginPath);
+            if (needsCheckout) {
+              setSignOutAfterCheckout(true);
+              setCheckoutOpen(true);
+              return;
+            }
+            finishSignOut();
           }}
         >
           <LogOut className="h-4 w-4" />
@@ -153,6 +173,7 @@ export function BdaShell({ children, modules, employeeCode, displayName, basePat
   return (
     <div className="bda-portal min-h-screen">
       <ActivityTracker />
+      <StickyAlerts orgSlug={orgSlug} />
       <AnimatePresence>
         {mobileOpen && (
           <motion.div
@@ -210,6 +231,16 @@ export function BdaShell({ children, modules, employeeCode, displayName, basePat
           <AnimatedPage>{children}</AnimatedPage>
         </div>
       </motion.main>
+      <CheckoutModal
+        open={checkoutOpen}
+        onClose={() => {
+          setCheckoutOpen(false);
+          setSignOutAfterCheckout(false);
+        }}
+        onDone={() => {
+          if (signOutAfterCheckout) finishSignOut();
+        }}
+      />
     </div>
   );
 }

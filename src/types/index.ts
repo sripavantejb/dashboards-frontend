@@ -82,6 +82,8 @@ export interface Notification {
   message: string;
   read: boolean;
   createdAt: string;
+  sticky?: boolean;
+  dismissedAt?: string;
   metadata?: { href?: string; kind?: string };
 }
 

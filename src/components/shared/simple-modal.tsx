@@ -28,7 +28,7 @@ export function SimpleModal({
 
   if (reduceMotion && open) {
     return (
-      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+      <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/50" onClick={onClose} />
         <div className="relative z-10 w-full max-w-lg rounded-lg border bg-background p-6 shadow-lg max-h-[90vh] overflow-y-auto">
           <h2 className="font-display text-lg font-semibold mb-4">{title}</h2>
@@ -41,7 +41,7 @@ export function SimpleModal({
   return (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4">
           <motion.div
             className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
             variants={modalBackdrop}

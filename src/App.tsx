@@ -15,6 +15,7 @@ import CrmPage from '@/pages/crm/page';
 import CrmNewPage from '@/pages/crm/new/page';
 import CrmDetailPage from '@/pages/crm/detail/page';
 import EmployeesPage from '@/pages/employees/page';
+import BdaSettingsPage from '@/pages/os/bda-settings';
 import FollowUpsPage from '@/pages/follow-ups/page';
 import ImportPage from '@/pages/import/page';
 import LeadListsPage from '@/pages/lead-lists/page';
@@ -184,6 +185,7 @@ export default function App() {
         </Route>
 
         <Route path="/employees" element={<EmployeesPage />} />
+        <Route path="/bda-settings" element={<BdaSettingsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/settings/profile" element={<ProfileSettingsPage />} />
         <Route path="/settings/services" element={<ServicesPage />} />

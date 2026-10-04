@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router';
-import { AlertTriangle, BellRing, Briefcase, Building2, CircleDollarSign, FolderKanban, Save, Send, Target, Users } from 'lucide-react';
+import { Link, useLocation } from 'react-router';
+import { AlertTriangle, BellRing, Briefcase, Building2, CircleDollarSign, FolderKanban, LogIn, Phone, Save, Send, Target, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/permissions';
@@ -11,9 +11,38 @@ import { PageGrid } from '@/components/layout/page-layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PageError, PageLoading } from '@/components/shared/page-states';
+import { cn } from '@/lib/utils';
 import { SectionCard, StatCard, StatusPill, fmtDate, fmtDateTime, humanize, inr } from '@/components/shared/os-ui';
+import { CheckoutSnapshotView, type CheckoutSnapshot } from '@/components/sales/checkout-modal';
 
 const PIPELINE_STAGES = ['new', 'contacted', 'qualified', 'unqualified', 'converted', 'lost'] as const;
+const DEAL_ORDER = ['new', 'contacted', 'qualified', 'meeting', 'proposal', 'negotiation', 'won', 'lost'];
+const COMBINED_ORDER = ['new', 'contacted', 'qualified', 'meeting', 'proposal', 'negotiation', 'converted', 'won', 'customers', 'this_month', 'active', 'unqualified', 'lost'];
+
+function orderedCounts(counts: Record<string, number> | undefined, order: readonly string[]) {
+  const src = counts || {};
+  const keys = [...order.filter((k) => src[k] != null), ...Object.keys(src).filter((k) => !order.includes(k))];
+  return Object.fromEntries(keys.map((k) => [k, src[k] || 0]));
+}
+
+function PipelineBars({ counts, empty }: { counts?: Record<string, number>; empty: string }) {
+  const entries = Object.entries(counts || {});
+  if (!entries.length || entries.every(([, n]) => !n)) return <p className="text-sm text-muted-foreground">{empty}</p>;
+  const max = Math.max(1, ...entries.map(([, n]) => n));
+  return (
+    <div className="flex flex-col gap-2">
+      {entries.map(([status, n]) => (
+        <div key={status} className="flex items-center gap-3 text-sm">
+          <span className="w-28 shrink-0 truncate text-muted-foreground">{humanize(status)}</span>
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
+            <div className={cn('h-full rounded-full', n ? 'bg-primary' : 'bg-transparent')} style={{ width: `${(n / max) * 100}%` }} />
+          </div>
+          <span className="w-8 text-right tabular-nums">{n}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 interface Dashboard {
   canSeeAll: boolean;
@@ -25,11 +54,54 @@ interface Dashboard {
   myProjects: { owned: number; working: number; list: { id: string; name: string }[] };
   workload: { id: string; name: string; role: string; active: number; completed: number; blocked: number; overdue: number; total: number }[];
   kpis: { received: number; activeClients: number; activeProjects: number; openLeads: number; pipelineValue: number; outstanding: number };
-  pipeline: { counts: Record<string, number>; conversionRate: number };
+  pipeline: {
+    counts: Record<string, number>;
+    conversionRate: number;
+    leads?: Record<string, number>;
+    deals?: Record<string, number>;
+    customers?: Record<string, number>;
+    totals?: { leads: number; deals: number; customers: number; dealValue: number; customerRevenue: number };
+  };
   operations: { dueSoon: number; meetings: { _id: string; title: string; startsAt: string }[] };
   finance: { invoiced: number; collected: number; outstanding: number; overdue: number; monthPaid: number; quarterPaid: number; otherIncome: number; totalSpent: number; monthSpent: number; net: number };
   attention: { overdueInvoices: { count: number; amount: number }; followUps: { id: string; notes: string; dueAt: string }[]; deliveryRisk: { dueSoon: number; overdueTasks: number } };
+  bdaAttendance?: {
+    date: string;
+    checkins: { id: string; name: string; employeeCode: string; status: string; checkInAt?: string | null; checkOutAt?: string | null }[];
+    checkouts: { id: string; name: string; employeeCode: string; checkOutAt?: string; remarks: string; snapshot: CheckoutSnapshot | null }[];
+  };
+  showBdaOps?: boolean;
 }
+
+type BdaTeamActivity = {
+  date: string;
+  totals: {
+    bdas: number;
+    contacting: number;
+    checkedIn: number;
+    callsToday: number;
+    openLeads: number;
+    followUpsDue: number;
+    openDeals: number;
+    dealValue: number;
+  };
+  pipeline: Record<string, number>;
+  rows: {
+    employeeId: string;
+    name: string;
+    employeeCode: string;
+    checkInStatus: string;
+    lastActivity?: string;
+    lastActivityAt?: string | null;
+    callsToday: number;
+    contacting: boolean;
+    openLeads: number;
+    followUpsDue: number;
+    pipeline: Record<string, number>;
+    openDeals: number;
+    dealValue: number;
+  }[];
+};
 
 type StageTargetRow = {
   employeeId: string;
@@ -41,10 +113,17 @@ type StageTargetRow = {
 
 export default function OsDashboardPage() {
   const user = useAuthStore((s) => s.user);
+  const { hash } = useLocation();
   const can = useCan();
   const qc = useQueryClient();
   const canManageBdaTargets = can('sales_crm:write') || user?.role === 'admin';
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['os-dashboard'], queryFn: () => api.data<Dashboard>('/os/dashboard') });
+  const teamActivity = useQuery({
+    queryKey: ['sales-team-activity'],
+    queryFn: () => api.data<BdaTeamActivity>('/sales-crm/team-activity'),
+    enabled: canManageBdaTargets || can('sales_crm:read') || user?.role === 'admin',
+    retry: false,
+  });
   const stageTargets = useQuery({
     queryKey: ['sales-stage-targets'],
     queryFn: () => api.data<StageTargetRow[]>('/sales-crm/stage-targets'),
@@ -57,6 +136,11 @@ export default function OsDashboardPage() {
     if (!stageTargets.data) return;
     setDrafts(Object.fromEntries(stageTargets.data.map((r) => [r.employeeId, { ...r.stages }])));
   }, [stageTargets.data]);
+
+  useEffect(() => {
+    if (hash !== '#sales-team-bda') return;
+    document.getElementById('sales-team-bda')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [hash]);
 
   const alerts = useMutation({
     mutationFn: () => api.data<{ message: string }>('/os/dashboard/alerts', 'POST'),
@@ -77,6 +161,12 @@ export default function OsDashboardPage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+  const history = useQuery({
+    queryKey: ['bda-attendance-history'],
+    queryFn: () => api.data<{ rows: { _id: string; name: string; employeeCode: string; date: string; status: string; checkInAt?: string | null; checkOutAt?: string | null; durationMinutes?: number | null; remarks: string }[] }>('/sales-crm/attendance/history?days=30'),
+    enabled: canManageBdaTargets || can('sales_crm:read') || user?.role === 'admin',
+    retry: false,
+  });
 
   if (isError) return <PageError onRetry={() => refetch()} />;
   if (isLoading || !data) return <PageLoading rows={6} />;
@@ -84,6 +174,14 @@ export default function OsDashboardPage() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const bdaRows = stageTargets.data || [];
+  const showBda = Boolean(d.showBdaOps || d.canSeeAll || canManageBdaTargets);
+  const timeOf = (v?: string | null) => (v ? new Date(v).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—');
+  const fmtMins = (n?: number | null) => {
+    if (n == null) return '—';
+    const h = Math.floor(n / 60);
+    const m = n % 60;
+    return h ? `${h}h ${m}m` : `${m}m`;
+  };
 
   return (
     <>
@@ -101,6 +199,73 @@ export default function OsDashboardPage() {
           </>
         }
       />
+
+      {showBda && (
+        <div id="sales-team-bda">
+        <SectionCard
+          title="Sales team (BDA)"
+          action={<p className="max-w-sm text-right text-xs text-muted-foreground">{teamActivity.data?.date || 'Today'} · portal stats for every BDA — who is contacting and where each pipeline sits</p>}
+        >
+          {teamActivity.isLoading ? (
+            <PageLoading rows={3} />
+          ) : teamActivity.isError || !teamActivity.data ? (
+            <p className="text-sm text-muted-foreground">BDA portal stats are not available yet.</p>
+          ) : (
+            <>
+              <PageGrid cols="4">
+                <StatCard label="BDAs contacting" value={`${teamActivity.data.totals.contacting}/${teamActivity.data.totals.bdas}`} hint={`${teamActivity.data.totals.checkedIn} checked in`} icon={<Phone className="h-4 w-4" />} />
+                <StatCard label="Calls today" value={teamActivity.data.totals.callsToday} icon={<Phone className="h-4 w-4" />} />
+                <StatCard label="Open pipeline" value={teamActivity.data.totals.openLeads} hint={`${teamActivity.data.totals.followUpsDue} follow-ups due`} icon={<Users className="h-4 w-4" />} />
+                <StatCard label="Open deals" value={teamActivity.data.totals.openDeals} hint={inr(teamActivity.data.totals.dealValue)} icon={<Target className="h-4 w-4" />} />
+              </PageGrid>
+              <div className="mt-5">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Team pipeline</p>
+                <PipelineBars counts={orderedCounts(teamActivity.data.pipeline, PIPELINE_STAGES)} empty="No BDA leads in the pipeline yet." />
+              </div>
+              {teamActivity.data.rows.length === 0 ? (
+                <p className="mt-5 text-sm text-muted-foreground">No BDAs yet. Create a sales login from BDA settings.</p>
+              ) : (
+                <div className="mt-5 overflow-x-auto rounded-lg border">
+                  <table className="w-full min-w-[52rem] text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                        {['BDA', 'Today', 'Calls', 'Open', 'Due', ...PIPELINE_STAGES.map((s) => humanize(s)), 'Deals'].map((h) => (
+                          <th key={h} className="px-3 py-3 font-medium">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {teamActivity.data.rows.map((row) => (
+                        <tr key={row.employeeId} className="border-b last:border-0 align-top">
+                          <td className="px-3 py-3">
+                            <p className="font-medium">{row.name}</p>
+                            <p className="font-mono text-[11px] text-muted-foreground">{row.employeeCode}</p>
+                            {row.lastActivity && <p className="mt-1 max-w-[12rem] truncate text-[11px] text-muted-foreground">{row.lastActivity}</p>}
+                          </td>
+                          <td className="px-3 py-3">
+                            <StatusPill value={row.contacting ? 'contacting' : row.checkInStatus} />
+                          </td>
+                          <td className="px-3 py-3 tabular-nums">{row.callsToday}</td>
+                          <td className="px-3 py-3 tabular-nums">{row.openLeads}</td>
+                          <td className="px-3 py-3 tabular-nums">{row.followUpsDue}</td>
+                          {PIPELINE_STAGES.map((st) => (
+                            <td key={st} className="px-3 py-3 tabular-nums text-muted-foreground">{row.pipeline[st] || 0}</td>
+                          ))}
+                          <td className="px-3 py-3">
+                            <p className="tabular-nums">{row.openDeals}</p>
+                            <p className="text-[11px] text-muted-foreground">{inr(row.dealValue)}</p>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </SectionCard>
+        </div>
+      )}
 
       <PageGrid cols="4">
         <StatCard label="Open tasks" value={d.taskStats.open} hint={`${d.taskStats.today} due today`} icon={<Target className="h-4 w-4" />} />
@@ -155,34 +320,36 @@ export default function OsDashboardPage() {
       </PageGrid>
 
       {d.canSeeAll && (
-        <PageGrid cols="2">
-          <SectionCard title="Finance snapshot" action={<Link to="/revenue" className="text-xs font-medium text-muted-foreground hover:text-foreground">Revenue →</Link>}>
-            <dl className="grid grid-cols-2 gap-4 text-sm">
-              {([
-                ['Invoiced', d.finance.invoiced], ['Collected', d.finance.collected], ['This month', d.finance.monthPaid], ['This quarter', d.finance.quarterPaid],
-                ['Other income', d.finance.otherIncome], ['Spent (month)', d.finance.monthSpent], ['Total spent', d.finance.totalSpent], ['Net', d.finance.net],
-              ] as [string, number][]).map(([k, v]) => (
-                <div key={k}><dt className="text-xs text-muted-foreground">{k}</dt><dd className="font-display text-lg font-semibold">{inr(v)}</dd></div>
-              ))}
-            </dl>
-          </SectionCard>
+        <>
+          <PageGrid cols="3">
+            <SectionCard title="Leads pipeline" action={<span className="text-xs text-muted-foreground">{d.pipeline.totals?.leads ?? 0} total</span>}>
+              <PipelineBars counts={orderedCounts(d.pipeline.leads || d.pipeline.counts, PIPELINE_STAGES)} empty="No leads yet." />
+            </SectionCard>
+            <SectionCard title="Deals pipeline" action={<span className="text-xs text-muted-foreground">{d.pipeline.totals?.deals ?? 0} total</span>}>
+              <PipelineBars counts={orderedCounts(d.pipeline.deals, DEAL_ORDER)} empty="No deals yet." />
+            </SectionCard>
+            <SectionCard title="Customers" action={<span className="text-xs text-muted-foreground">{inr(d.pipeline.totals?.customerRevenue || 0)}</span>}>
+              <PipelineBars counts={orderedCounts(d.pipeline.customers, ['this_month', 'active'])} empty="No customers yet." />
+            </SectionCard>
+          </PageGrid>
 
-          <SectionCard title="Sales pipeline" action={<Link to="/pipeline" className="text-xs font-medium text-muted-foreground hover:text-foreground">Pipeline →</Link>}>
-            <div className="flex flex-col gap-2">
-              {Object.entries(d.pipeline.counts).filter(([, n]) => n > 0).map(([status, n]) => {
-                const max = Math.max(1, ...Object.values(d.pipeline.counts));
-                return (
-                  <div key={status} className="flex items-center gap-3 text-sm">
-                    <span className="w-32 shrink-0 truncate text-muted-foreground">{humanize(status)}</span>
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-primary" style={{ width: `${(n / max) * 100}%` }} /></div>
-                    <span className="w-8 text-right tabular-nums">{n}</span>
-                  </div>
-                );
-              })}
-              {Object.values(d.pipeline.counts).every((n) => !n) && <p className="text-sm text-muted-foreground">No leads yet.</p>}
-            </div>
-          </SectionCard>
-        </PageGrid>
+          <PageGrid cols="2">
+            <SectionCard title="Finance snapshot" action={<Link to="/revenue" className="text-xs font-medium text-muted-foreground hover:text-foreground">Revenue →</Link>}>
+              <dl className="grid grid-cols-2 gap-4 text-sm">
+                {([
+                  ['Invoiced', d.finance.invoiced], ['Collected', d.finance.collected], ['This month', d.finance.monthPaid], ['This quarter', d.finance.quarterPaid],
+                  ['Other income', d.finance.otherIncome], ['Spent (month)', d.finance.monthSpent], ['Total spent', d.finance.totalSpent], ['Net', d.finance.net],
+                ] as [string, number][]).map(([k, v]) => (
+                  <div key={k}><dt className="text-xs text-muted-foreground">{k}</dt><dd className="font-display text-lg font-semibold">{inr(v)}</dd></div>
+                ))}
+              </dl>
+            </SectionCard>
+
+            <SectionCard title="Combined sales pipeline" action={<Link to="/pipeline" className="text-xs font-medium text-muted-foreground hover:text-foreground">Pipeline →</Link>}>
+              <PipelineBars counts={orderedCounts(d.pipeline.counts, COMBINED_ORDER)} empty="No pipeline activity yet." />
+            </SectionCard>
+          </PageGrid>
+        </>
       )}
 
       <PageGrid cols="2">
@@ -209,6 +376,107 @@ export default function OsDashboardPage() {
           )}
         </SectionCard>
       </PageGrid>
+
+      {showBda && (
+        <>
+          <SectionCard
+            title="BDA check-in today"
+            action={<p className="text-xs text-muted-foreground">{d.bdaAttendance?.date || 'Today'} · who is in, and who has checked out</p>}
+            bodyClassName="p-0"
+          >
+            {(d.bdaAttendance?.checkins || []).length === 0 ? (
+              <p className="p-5 text-sm text-muted-foreground">No BDAs yet. Add sales employees from Employees.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      {['BDA', 'Status', 'Check in', 'Check out', 'Hours'].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(d.bdaAttendance?.checkins || []).map((row) => (
+                      <tr key={row.id} className="border-b last:border-0">
+                        <td className="px-5 py-3"><p className="font-medium">{row.name}</p><p className="font-mono text-[11px] text-muted-foreground">{row.employeeCode}</p></td>
+                        <td className="px-5 py-3"><StatusPill value={row.status} /></td>
+                        <td className="px-5 py-3 tabular-nums text-muted-foreground">{row.checkInAt ? timeOf(row.checkInAt) : '—'}</td>
+                        <td className="px-5 py-3 tabular-nums text-muted-foreground">{row.checkOutAt ? timeOf(row.checkOutAt) : '—'}</td>
+                        <td className="px-5 py-3 tabular-nums text-muted-foreground">{fmtMins(row.checkInAt && row.checkOutAt ? Math.round((+new Date(row.checkOutAt) - +new Date(row.checkInAt)) / 60_000) : null)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title="BDA checkout reports"
+            action={<p className="max-w-sm text-right text-xs text-muted-foreground">Lead snapshot + remarks sent when a BDA checks out</p>}
+          >
+            {(d.bdaAttendance?.checkouts || []).length === 0 ? (
+              <p className="text-sm text-muted-foreground">No checkout reports yet today.</p>
+            ) : (
+              <div className="flex flex-col gap-6">
+                {(d.bdaAttendance?.checkouts || []).map((row) => (
+                  <div key={row.id} className="rounded-lg border p-4">
+                    <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                      <div>
+                        <p className="font-medium">{row.name}</p>
+                        <p className="font-mono text-[11px] text-muted-foreground">{row.employeeCode} · {row.checkOutAt ? fmtDateTime(row.checkOutAt) : ''}</p>
+                      </div>
+                    </div>
+                    {row.snapshot && <CheckoutSnapshotView snapshot={row.snapshot} />}
+                    {row.remarks && (
+                      <div className="mt-3 rounded-md bg-surface-soft/70 px-3 py-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Remarks</p>
+                        <p className="mt-1 whitespace-pre-wrap text-sm">{row.remarks}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title="BDA timing history"
+            action={<Link to="/sales-crm/attendance" className="text-xs font-medium text-muted-foreground hover:text-foreground">Full attendance →</Link>}
+            bodyClassName="p-0"
+          >
+            {history.isLoading ? (
+              <div className="p-5"><PageLoading rows={4} /></div>
+            ) : history.isError ? (
+              <p className="p-5 text-sm text-muted-foreground">Could not load attendance history.</p>
+            ) : !(history.data?.rows || []).length ? (
+              <p className="p-5 text-sm text-muted-foreground">No check-in or check-out records in the last 30 days.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      {['Date', 'BDA', 'Status', 'In', 'Out', 'Hours', 'Remarks'].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(history.data?.rows || []).map((row) => (
+                      <tr key={row._id} className="border-b last:border-0">
+                        <td className="px-5 py-3 whitespace-nowrap">{fmtDate(row.date)}</td>
+                        <td className="px-5 py-3"><p className="font-medium">{row.name}</p><p className="font-mono text-[11px] text-muted-foreground">{row.employeeCode}</p></td>
+                        <td className="px-5 py-3"><StatusPill value={row.status} /></td>
+                        <td className="px-5 py-3 tabular-nums text-muted-foreground">{timeOf(row.checkInAt)}</td>
+                        <td className="px-5 py-3 tabular-nums text-muted-foreground">{timeOf(row.checkOutAt)}</td>
+                        <td className="px-5 py-3 tabular-nums">{fmtMins(row.durationMinutes)}</td>
+                        <td className="px-5 py-3 max-w-xs text-xs text-muted-foreground"><span className="line-clamp-2">{row.remarks || '—'}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </SectionCard>
+        </>
+      )}
 
       {d.canSeeAll && d.workload.length > 0 && (
         <SectionCard
