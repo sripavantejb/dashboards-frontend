@@ -20,6 +20,7 @@ import { Link, useParams } from 'react-router';
 import { CompanyDatabaseCard } from '@/components/admin/company-database-card';
 import { CompanyProfileCard } from '@/components/company/company-profile-card';
 import { NotificationEmailsCard } from '@/components/company/notification-emails-card';
+import { SmtpConnectionCard } from '@/components/company/smtp-connection-card';
 
 const ROLES = ['admin', 'manager', 'sales', 'marketing', 'hr', 'finance', 'operations', 'developer'];
 
@@ -106,6 +107,7 @@ export default function CompanyUsersPage() {
       </Card>
 
       <CompanyProfileCard base={`/admin/organizations/${id}/settings`} onSaved={() => queryClient.invalidateQueries({ queryKey: ['admin-organization', id] })} />
+      <SmtpConnectionCard base={`/admin/organizations/${id}/settings`} />
       <NotificationEmailsCard base={`/admin/organizations/${id}/settings`} />
       <CompanyDatabaseCard organizationId={id} slug={org?.slug} />
 

@@ -12,6 +12,7 @@ import { PageLoading } from '@/components/shared/page-states';
 const CATEGORIES = [
   { key: 'finance', label: 'Finance', description: 'Payments received, recurring bills due and invoice / transaction changes' },
   { key: 'sales', label: 'Sales', description: 'Leads converted to clients and Sales CRM approval requests' },
+  { key: 'tasks', label: 'Tasks', description: 'Copies of task assignments and reassignments (assignees always get their own email)' },
   { key: 'careers', label: 'Careers', description: 'New job applications from the careers page' },
   { key: 'referrals', label: 'Referrals', description: 'New referrals submitted by partners' },
   { key: 'ega', label: 'EGA applications', description: 'New EGA (growth accelerator) applications' },
@@ -98,6 +99,7 @@ export function NotificationEmailsCard({ base }: { base: string }) {
             <p className="text-sm text-muted-foreground">
               Add the inboxes that should receive each kind of email — for example accounts@ for finance or hr@ for careers.
               Team members keep getting the notifications meant for them; these addresses are sent a copy.
+              Outbound mail uses the SMTP connection above.
             </p>
           </div>
         </div>

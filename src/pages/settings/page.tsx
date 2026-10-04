@@ -8,6 +8,7 @@ import { Link } from 'react-router';
 import { useCan } from '@/lib/permissions';
 import { CompanyProfileCard } from '@/components/company/company-profile-card';
 import { NotificationEmailsCard } from '@/components/company/notification-emails-card';
+import { SmtpConnectionCard } from '@/components/company/smtp-connection-card';
 
 export default function SettingsPage() {
   const { user, organization, updateOrganization } = useAuthStore();
@@ -16,7 +17,7 @@ export default function SettingsPage() {
   const sections = [
     { title: 'Profile', description: 'Update your name, phone, and password', href: '/settings/profile', icon: User },
     { title: 'Organization', description: canManageCompany ? 'Logo, invoice and bank details' : organization?.name || 'Organization details', href: canManageCompany ? '#company' : '/settings/profile', icon: Building2 },
-    { title: 'Notifications', description: canManageCompany ? 'Choose which inboxes receive notification emails' : 'Your notifications', href: canManageCompany ? '#notification-emails' : '/notifications', icon: Bell },
+    { title: 'Email & SMTP', description: canManageCompany ? 'Mailbox, app password, and notification inboxes' : 'Your notifications', href: canManageCompany ? '#smtp' : '/notifications', icon: Bell },
     { title: 'Security', description: 'Password and session management', href: '/settings/profile', icon: Shield },
   ];
 
@@ -79,6 +80,9 @@ export default function SettingsPage() {
         <>
           <div id="company" className="scroll-mt-20">
             <CompanyProfileCard base="/settings" onSaved={(c) => updateOrganization({ name: c.name, logo: c.logo })} />
+          </div>
+          <div id="smtp" className="scroll-mt-20">
+            <SmtpConnectionCard base="/settings" />
           </div>
           <div id="notification-emails" className="scroll-mt-20">
             <NotificationEmailsCard base="/settings" />

@@ -311,36 +311,142 @@ export function ApplicationsPage() {
   );
 }
 
+const EGA_FIELD_TYPES = ['text', 'email', 'select', 'multiselect', 'scale', 'textarea'] as const;
+
 export function EgaPage() {
+  const qc = useQueryClient();
+  const can = useCan();
+  const [tab, setTab] = useState<'applications' | 'form' | 'scoring'>('applications');
+  const { data: form, isLoading } = useQuery({ queryKey: ['ega-form'], queryFn: () => api.data<Any>('/growth/ega/form') });
+  const [draft, setDraft] = useState<Any | null>(null);
+  const fields: Any[] = (draft || form)?.fields || [];
+  const working = draft || form;
+  const setField = (i: number, patch: Any) => {
+    const src = draft || form;
+    if (!src) return;
+    setDraft({ ...src, fields: (src.fields || []).map((f: Any, idx: number) => (idx === i ? { ...f, ...patch } : f)) });
+  };
+  const startEdit = () => setDraft(form ? { ...form, fields: (form.fields || []).map((f: Any) => ({ ...f })) } : null);
+  const save = useMutation({
+    mutationFn: () => {
+      const src = draft || form;
+      if (!src) throw new Error('Form not loaded');
+      return api.data('/growth/ega/form', 'PUT', { title: src.title, subtitle: src.subtitle, published: src.published, fields: src.fields });
+    },
+    onSuccess: () => { toast.success('Form published to /ega'); qc.invalidateQueries({ queryKey: ['ega-form'] }); },
+    onError: onErr,
+  });
+
   return (
-    <ResourcePage
-      title="EGA applications"
-      description="Applicants to the growth associate programme, ranked by score."
-      endpoint="/growth/ega"
-      writePermission="growth:write"
-      allowCreate={false}
-      headerExtra={<PublicLink path="/ega/:org" label="EGA form" />}
-      filters={[{ name: 'status', label: 'Statuses', options: ['pending', 'shortlisted', 'selected', 'lookback', 'rejected'] }]}
-      fields={[
-        { name: 'status', label: 'Status', type: 'select', options: ['pending', 'shortlisted', 'selected', 'lookback', 'rejected'] },
-        { name: 'adminNotes', label: 'Notes', type: 'textarea' },
-      ]}
-      columns={[
-        { key: 'fullName', header: 'Applicant', render: (r) => <div><p className="font-medium">{r.fullName}</p><p className="text-xs text-muted-foreground">{[r.email, r.phone].filter(Boolean).join(' · ')}</p></div> },
-        { key: 'college', header: 'College / city', render: (r) => [r.college, r.city].filter(Boolean).join(' · ') || '—' },
-        { key: 'score', header: 'Score', render: (r) => <span className="font-semibold tabular-nums">{r.score ?? 0}</span> },
-        { key: 'status', header: 'Status', render: (r) => <StatusPill value={r.status} /> },
-        { key: 'createdAt', header: 'Applied', render: (r) => fmtDate(r.createdAt) },
-      ]}
-    />
+    <>
+      <Tabs value={tab} onChange={(t) => { setTab(t); if (t !== 'applications' && form && !draft) startEdit(); }} tabs={[
+        { id: 'applications', label: 'Applications' }, { id: 'form', label: 'Edit form' }, { id: 'scoring', label: 'Scoring' },
+      ]} />
+      {tab === 'applications' && (
+        <ResourcePage
+          title="EGA applications"
+          description="Applicants ranked by the live form’s scoring. Change questions in Edit form — the public page updates immediately."
+          endpoint="/growth/ega"
+          writePermission="growth:write"
+          allowCreate={false}
+          emptyText="No applications yet. Share the public EGA form to collect them."
+          headerExtra={<PublicLink path="/ega/:org" label="EGA form" />}
+          filters={[{ name: 'status', label: 'Statuses', options: ['pending', 'shortlisted', 'selected', 'lookback', 'rejected'] }]}
+          fields={[
+            { name: 'status', label: 'Status', type: 'select', options: ['pending', 'shortlisted', 'selected', 'lookback', 'rejected'] },
+            { name: 'adminNotes', label: 'Notes', type: 'textarea' },
+          ]}
+          columns={[
+            { key: 'fullName', header: 'Applicant', render: (r) => <div><p className="font-medium">{r.fullName}</p><p className="text-xs text-muted-foreground">{[r.email, r.phone].filter(Boolean).join(' · ')}</p></div> },
+            { key: 'college', header: 'College / city', render: (r) => [r.college, r.city].filter(Boolean).join(' · ') || '—' },
+            { key: 'score', header: 'Score', render: (r) => <span className="font-semibold tabular-nums">{r.score ?? 0}</span> },
+            { key: 'status', header: 'Status', render: (r) => <StatusPill value={r.status} /> },
+            { key: 'createdAt', header: 'Applied', render: (r) => fmtDate(r.createdAt) },
+          ]}
+        />
+      )}
+      {tab !== 'applications' && isLoading && <PageLoading />}
+      {tab === 'form' && working && (
+        <>
+          <PageHeader title="Edit EGA form" description="These questions drive the public /ega page. No deploy needed."
+            action={can('growth:write') && <Button disabled={save.isPending || fields.some((f) => !f.label)} onClick={() => { if (!draft) startEdit(); save.mutate(); }}>{save.isPending ? 'Saving…' : 'Save form'}</Button>} />
+          <FormStack>
+            <FormRow>
+              <FormField><Label>Title</Label><Input value={working.title || ''} onChange={(e) => setDraft({ ...working, title: e.target.value })} /></FormField>
+              <FormField><Label>Published</Label>
+                <Select value={working.published ? 'yes' : 'no'} onChange={(e) => setDraft({ ...working, published: e.target.value === 'yes' })}>
+                  <option value="yes">Live on public page</option><option value="no">Hidden</option>
+                </Select>
+              </FormField>
+            </FormRow>
+            <FormField><Label>Subtitle</Label><Input value={working.subtitle || ''} onChange={(e) => setDraft({ ...working, subtitle: e.target.value })} /></FormField>
+            <div className="flex justify-end">
+              <Button size="sm" variant="outline" onClick={() => setDraft({ ...working, fields: [...fields, { id: `q${Date.now().toString(36)}`, type: 'text', label: '', section: 'About you', required: false }] })}><Plus className="mr-1 h-3.5 w-3.5" />Question</Button>
+            </div>
+            {fields.map((f, i) => (
+              <div key={f.id} className="rounded-md border p-3">
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input placeholder="Question" value={f.label} onChange={(e) => setField(i, { label: e.target.value })} />
+                  <Select className="sm:w-36" value={f.type} onChange={(e) => setField(i, { type: e.target.value })}>{EGA_FIELD_TYPES.map((t) => <option key={t} value={t}>{humanize(t)}</option>)}</Select>
+                  <Input className="sm:w-40" placeholder="Section" value={f.section || ''} onChange={(e) => setField(i, { section: e.target.value })} />
+                  <label className="flex shrink-0 items-center gap-1 text-xs"><input type="checkbox" checked={Boolean(f.required)} onChange={(e) => setField(i, { required: e.target.checked })} />Required</label>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-error" onClick={() => setDraft({ ...working, fields: fields.filter((_, idx) => idx !== i) })}><Trash2 className="h-3.5 w-3.5" /></Button>
+                </div>
+                {['select', 'multiselect'].includes(f.type) && (
+                  <Input className="mt-2" placeholder="Options, comma separated" value={(f.options || []).map((o: Any) => o.label).join(', ')}
+                    onChange={(e) => setField(i, { options: e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean).map((s: string) => ({ value: s, label: s })) })} />
+                )}
+              </div>
+            ))}
+          </FormStack>
+        </>
+      )}
+      {tab === 'scoring' && working && (
+        <>
+          <PageHeader title="Scoring" description="Points per answer. Totals cap at 100. Leave blank for unscored questions."
+            action={can('growth:write') && <Button disabled={save.isPending} onClick={() => { if (!draft) startEdit(); save.mutate(); }}>{save.isPending ? 'Saving…' : 'Save scoring'}</Button>} />
+          {fields.map((f: Any, i: number) => (
+            <div key={f.id} className="grid gap-2 border-b py-3 sm:grid-cols-[1fr_200px_120px]">
+              <p className="text-sm font-medium">{f.label}<span className="ml-2 text-xs text-muted-foreground">{f.section}</span></p>
+              <Input placeholder="Yes:8, No:0" value={f.scoreMap ? Object.entries(f.scoreMap).map(([k, v]) => `${k}:${v}`).join(', ') : ''}
+                onChange={(e) => {
+                  const scoreMap: Record<string, number> = {};
+                  e.target.value.split(',').forEach((part) => {
+                    const [k, v] = part.split(':').map((s) => s.trim());
+                    if (k && v && !Number.isNaN(Number(v))) scoreMap[k] = Number(v);
+                  });
+                  setField(i, { scoreMap: Object.keys(scoreMap).length ? scoreMap : undefined });
+                }} />
+              <Input type="number" placeholder="Max" value={f.maxScore ?? ''} onChange={(e) => setField(i, { maxScore: e.target.value ? Number(e.target.value) : undefined })} />
+            </div>
+          ))}
+        </>
+      )}
+    </>
   );
 }
 
 export function NewsletterPage() {
   const qc = useQueryClient();
   const can = useCan();
+  const org = useAuthStore((s) => s.organization);
+  const [tab, setTab] = useState<'subscribers' | 'campaigns' | 'templates'>('campaigns');
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['newsletter'], queryFn: () => api.data<{ rows: Any[]; total: number; subscribed: number }>('/growth/newsletter') });
+  const { data: campaigns = [] } = useQuery({ queryKey: ['campaigns'], queryFn: () => api.data<Any[]>('/growth/newsletter/campaigns') });
+  const { data: articles } = useQuery({ queryKey: ['/growth/magazine/articles'], queryFn: () => api.list<Any>('/growth/magazine/articles?limit=50') });
+  const [compose, setCompose] = useState(false);
+  const [camp, setCamp] = useState<Any>({ subject: '', body: '', articleId: '' });
   const toggle = useMutation({ mutationFn: (r: Any) => api.data(`/growth/newsletter/${r._id}`, 'PATCH', { status: r.status === 'subscribed' ? 'unsubscribed' : 'subscribed' }), onSuccess: () => qc.invalidateQueries({ queryKey: ['newsletter'] }), onError: onErr });
+  const createCamp = useMutation({
+    mutationFn: () => api.data('/growth/newsletter/campaigns', 'POST', { subject: camp.subject, body: camp.body, articleId: camp.articleId || undefined }),
+    onSuccess: () => { toast.success('Draft saved'); setCompose(false); qc.invalidateQueries({ queryKey: ['campaigns'] }); },
+    onError: onErr,
+  });
+  const send = useMutation({
+    mutationFn: (id: string) => api.data<Any>(`/growth/newsletter/campaigns/${id}/send`, 'POST', {}),
+    onSuccess: (r: Any) => { toast.success(r.skippedSmtp ? 'Marked sent (SMTP not configured)' : `Sent to ${r.deliveredCount} subscribers`); qc.invalidateQueries({ queryKey: ['campaigns'] }); },
+    onError: onErr,
+  });
   const exportCsv = () => {
     const rows = (data?.rows || []).filter((r) => r.status === 'subscribed');
     const csv = ['email,source,subscribed_at', ...rows.map((r) => `${r.email},${r.source || ''},${r.createdAt}`)].join('\n');
@@ -349,23 +455,142 @@ export function NewsletterPage() {
     a.download = 'newsletter-subscribers.csv';
     a.click();
   };
-  if (isError) return <PageError onRetry={() => refetch()} />;
-  if (isLoading || !data) return <PageLoading />;
   return (
     <>
-      <PageHeader title="Newsletter" description="People who subscribed from your public pages." action={<Button variant="outline" onClick={exportCsv}>Export CSV</Button>} />
-      <PageGrid cols="2">
-        <StatCard label="Subscribed" value={data.subscribed} tone="success" />
-        <StatCard label="Total signups" value={data.total} />
-      </PageGrid>
-      <DataTable rows={data.rows as any} empty="No subscribers yet."
-        columns={[
-          { key: 'email', header: 'Email', render: (r) => <span className="font-medium">{r.email}</span> },
-          { key: 'source', header: 'Source', render: (r) => r.source || '—' },
-          { key: 'status', header: 'Status', render: (r) => <StatusPill value={r.status === 'subscribed' ? 'active' : 'inactive'} /> },
-          { key: 'createdAt', header: 'Joined', render: (r) => fmtDate(r.createdAt) },
-          { key: 'x', header: '', className: 'w-px', render: (r) => can('growth:write') && <Button size="sm" variant="ghost" onClick={() => toggle.mutate(r)}>{r.status === 'subscribed' ? 'Unsubscribe' : 'Resubscribe'}</Button> },
-        ]} />
+      <PageHeader title="Newsletter" description="Email campaigns to subscribers. Magazine lives next door — promote an article from a campaign."
+        action={<><PublicLink path="/newsletter/:org" label="Subscribe page" /><PublicLink path="/magazine/:org" label="Magazine" /></>} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'campaigns', label: 'Campaigns' }, { id: 'subscribers', label: 'Subscribers' }, { id: 'templates', label: 'Templates' }]} />
+      {tab === 'campaigns' && (
+        <>
+          <div className="flex justify-end">{can('growth:write') && <Button onClick={() => { setCamp({ subject: '', body: '', articleId: '' }); setCompose(true); }}><Plus className="mr-2 h-4 w-4" />Compose</Button>}</div>
+          <DataTable rows={campaigns as any} empty="No campaigns yet. Compose one and send to everyone who subscribed."
+            columns={[
+              { key: 'subject', header: 'Subject', render: (r) => <span className="font-medium">{r.subject}</span> },
+              { key: 'status', header: 'Status', render: (r) => <StatusPill value={r.status} /> },
+              { key: 'recipientCount', header: 'Audience', render: (r) => r.recipientCount || '—' },
+              { key: 'sentAt', header: 'Sent', render: (r) => r.sentAt ? fmtDate(r.sentAt) : '—' },
+              { key: 'x', header: '', className: 'w-px', render: (r) => r.status === 'draft' && can('growth:write') && <Button size="sm" onClick={() => send.mutate(r._id)} disabled={send.isPending}>Send</Button> },
+            ]} />
+        </>
+      )}
+      {tab === 'subscribers' && (
+        isError ? <PageError onRetry={() => refetch()} /> : isLoading || !data ? <PageLoading /> : (
+          <>
+            <PageGrid cols="2">
+              <StatCard label="Subscribed" value={data.subscribed} tone="success" />
+              <StatCard label="Total signups" value={data.total} />
+            </PageGrid>
+            <div className="flex justify-end"><Button variant="outline" onClick={exportCsv}>Export CSV</Button></div>
+            <DataTable rows={data.rows as any} empty="No subscribers yet. Embed the subscribe page or magazine CTA."
+              columns={[
+                { key: 'email', header: 'Email', render: (r) => <span className="font-medium">{r.email}</span> },
+                { key: 'source', header: 'Source', render: (r) => r.source || '—' },
+                { key: 'status', header: 'Status', render: (r) => <StatusPill value={r.status === 'subscribed' ? 'active' : 'inactive'} /> },
+                { key: 'createdAt', header: 'Joined', render: (r) => fmtDate(r.createdAt) },
+                { key: 'x', header: '', className: 'w-px', render: (r) => can('growth:write') && <Button size="sm" variant="ghost" onClick={() => toggle.mutate(r)}>{r.status === 'subscribed' ? 'Unsubscribe' : 'Resubscribe'}</Button> },
+              ]} />
+          </>
+        )
+      )}
+      {tab === 'templates' && (
+        <ResourcePage
+          title="Email templates"
+          description="Reusable subject and body snippets for campaigns."
+          endpoint="/growth/newsletter/templates"
+          writePermission="growth:write"
+          emptyText="Save a template, then copy it into Compose."
+          fields={[
+            { name: 'name', label: 'Name', required: true },
+            { name: 'subject', label: 'Subject' },
+            { name: 'body', label: 'Body', type: 'textarea' },
+          ]}
+          columns={[
+            { key: 'name', header: 'Template', render: (r) => <span className="font-medium">{r.name}</span> },
+            { key: 'subject', header: 'Subject', render: (r) => r.subject || '—' },
+          ]}
+        />
+      )}
+      <SimpleModal open={compose} onClose={() => setCompose(false)} title="Compose campaign">
+        <FormStack>
+          <FormField><Label>Subject *</Label><Input value={camp.subject} onChange={(e) => setCamp({ ...camp, subject: e.target.value })} /></FormField>
+          <FormField><Label>Body *</Label><Textarea value={camp.body} onChange={(e) => setCamp({ ...camp, body: e.target.value })} /></FormField>
+          <FormField><Label>Promote magazine article</Label>
+            <Select value={camp.articleId} onChange={(e) => setCamp({ ...camp, articleId: e.target.value })}>
+              <option value="">None</option>
+              {(articles?.data || []).map((a) => <option key={a._id} value={a._id}>{a.title}</option>)}
+            </Select>
+          </FormField>
+          <p className="text-xs text-muted-foreground">Sends to all subscribed addresses via SMTP when configured. {org?.slug ? `Public magazine: /magazine/${org.slug}` : ''}</p>
+          <FormActions>
+            <Button variant="outline" onClick={() => setCompose(false)}>Cancel</Button>
+            <Button disabled={!camp.subject || !camp.body || createCamp.isPending} onClick={() => createCamp.mutate()}>{createCamp.isPending ? 'Saving…' : 'Save draft'}</Button>
+          </FormActions>
+        </FormStack>
+      </SimpleModal>
+    </>
+  );
+}
+
+export function MagazinePage() {
+  const [tab, setTab] = useState<'articles' | 'issues'>('articles');
+  const { data: issues } = useQuery({ queryKey: ['/growth/magazine/issues'], queryFn: () => api.list<Any>('/growth/magazine/issues?all=true') });
+  const issueOpts = (issues?.data || []).map((i) => ({ value: i._id, label: i.title }));
+  return (
+    <>
+      <PageHeader title="Magazine" description="The public newspaper. Publish an article, then promote it from Newsletter → Campaigns."
+        action={<PublicLink path="/magazine/:org" label="Magazine home" />} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'articles', label: 'Articles' }, { id: 'issues', label: 'Issues' }]} />
+      {tab === 'articles' ? (
+        <ResourcePage
+          title="Articles"
+          description="Stories on your public magazine. Set status to published to go live."
+          endpoint="/growth/magazine/articles"
+          writePermission="growth:write"
+          emptyText="Write the first piece — it appears at /magazine for this company."
+          createLabel="New article"
+          filters={[{ name: 'status', label: 'Statuses', options: ['draft', 'published'] }]}
+          fields={[
+            { name: 'title', label: 'Title', required: true },
+            { name: 'excerpt', label: 'Excerpt', type: 'textarea' },
+            { name: 'body', label: 'Body', type: 'textarea', required: true },
+            { name: 'cover', label: 'Cover image URL' },
+            { name: 'tags', label: 'Tags (comma separated)', help: 'Stored as a list' },
+            { name: 'issueId', label: 'Issue', type: 'select', options: issueOpts },
+            { name: 'status', label: 'Status', type: 'select', options: ['draft', 'published'] },
+          ]}
+          toPayload={(form) => ({
+            ...form,
+            tags: String(form.tags || '').split(',').map((s: string) => s.trim()).filter(Boolean),
+            issueId: form.issueId || undefined,
+          })}
+          columns={[
+            { key: 'title', header: 'Article', render: (r) => <div><p className="font-medium">{r.title}</p><p className="text-xs text-muted-foreground">{r.excerpt || r.slug}</p></div> },
+            { key: 'status', header: 'Status', render: (r) => <StatusPill value={r.status} /> },
+            { key: 'publishedAt', header: 'Published', render: (r) => fmtDate(r.publishedAt) },
+          ]}
+        />
+      ) : (
+        <ResourcePage
+          title="Issues"
+          description="Optional editions to group articles (like a print issue)."
+          endpoint="/growth/magazine/issues"
+          writePermission="growth:write"
+          emptyText="Issues are optional. Publish articles without one if you prefer a running feed."
+          createLabel="New issue"
+          filters={[{ name: 'status', label: 'Statuses', options: ['draft', 'published'] }]}
+          fields={[
+            { name: 'title', label: 'Title', required: true },
+            { name: 'summary', label: 'Summary', type: 'textarea' },
+            { name: 'cover', label: 'Cover image URL' },
+            { name: 'status', label: 'Status', type: 'select', options: ['draft', 'published'] },
+          ]}
+          columns={[
+            { key: 'title', header: 'Issue', render: (r) => <span className="font-medium">{r.title}</span> },
+            { key: 'status', header: 'Status', render: (r) => <StatusPill value={r.status} /> },
+            { key: 'publishedAt', header: 'Published', render: (r) => fmtDate(r.publishedAt) },
+          ]}
+        />
+      )}
     </>
   );
 }

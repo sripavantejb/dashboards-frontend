@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { ArrowLeft, CheckCircle2, Download, FileText, MapPin, Printer } from 'lucide-react';
 import { toast } from 'sonner';
@@ -73,8 +73,26 @@ function ProjectCards({ projects }: { projects: Any[] }) {
 // ---------------------------------------------------------------- client portal
 export function PortalPage() {
   const { slug = '', token = '' } = useParams();
-  const [tab, setTab] = useState<'overview' | 'updates' | 'invoices' | 'files' | 'meetings'>('overview');
+  const qc = useQueryClient();
+  const [tab, setTab] = useState<'overview' | 'updates' | 'invoices' | 'files' | 'meetings' | 'messages' | 'approvals' | 'requests'>('overview');
+  const [msg, setMsg] = useState('');
+  const [ticket, setTicket] = useState({ title: '', body: '', kind: 'question' });
   const q = useQuery({ queryKey: ['portal', slug, token], queryFn: () => pub<Any>(slug, `/portal/${token}`), retry: false });
+  const postComment = useMutation({
+    mutationFn: () => pub(slug, `/portal/${token}/comments`, 'POST', { body: msg }),
+    onSuccess: () => { setMsg(''); qc.invalidateQueries({ queryKey: ['portal', slug, token] }); toast.success('Message sent'); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const decide = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => pub(slug, `/portal/${token}/approvals/${id}`, 'POST', { status }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['portal', slug, token] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const fileTicket = useMutation({
+    mutationFn: () => pub(slug, `/portal/${token}/tickets`, 'POST', ticket),
+    onSuccess: () => { setTicket({ title: '', body: '', kind: 'question' }); qc.invalidateQueries({ queryKey: ['portal', slug, token] }); toast.success('Request received'); },
+    onError: (e: Error) => toast.error(e.message),
+  });
   return (
     <PublicQuery q={q}>
       {(d) => (
@@ -94,6 +112,9 @@ export function PortalPage() {
             { id: 'overview', label: 'Overview' }, { id: 'updates', label: 'Updates', count: d.updates.length },
             { id: 'invoices', label: 'Invoices', count: d.invoices.length }, { id: 'files', label: 'Files', count: d.documents.length },
             { id: 'meetings', label: 'Meetings', count: d.meetings.length },
+            { id: 'messages', label: 'Messages', count: (d.comments || []).length },
+            { id: 'approvals', label: 'Approvals', count: (d.approvals || []).length },
+            { id: 'requests', label: 'Requests', count: (d.tickets || []).length },
           ]} />
           {tab === 'overview' && (
             <>
@@ -171,6 +192,48 @@ export function PortalPage() {
                   ))}
                 </ul>
               ) : <p className="text-sm text-muted-foreground">No meetings shared.</p>}
+            </SectionCard>
+          )}
+          {tab === 'messages' && (
+            <SectionCard title="Conversation">
+              <ul className="mb-4 flex flex-col gap-3">
+                {(d.comments || []).length ? (d.comments as Any[]).map((c) => (
+                  <li key={c._id} className="text-sm"><p className="text-xs text-muted-foreground">{c.authorName || c.authorType} · {fmtDateTime(c.createdAt)}</p><p className="whitespace-pre-wrap">{c.body}</p></li>
+                )) : <p className="text-sm text-muted-foreground">No messages yet. Write to your team below.</p>}
+              </ul>
+              <FormStack>
+                <Textarea value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="Ask a question or share feedback…" />
+                <FormActions><Button disabled={!msg.trim() || postComment.isPending} onClick={() => postComment.mutate()}>{postComment.isPending ? 'Sending…' : 'Send'}</Button></FormActions>
+              </FormStack>
+            </SectionCard>
+          )}
+          {tab === 'approvals' && (
+            <SectionCard>
+              {(d.approvals || []).length ? (d.approvals as Any[]).map((a) => (
+                <div key={a._id} className="border-b py-3 last:border-0">
+                  <div className="flex items-center justify-between gap-2"><p className="font-medium">{a.title}</p><StatusPill value={a.status} /></div>
+                  {a.detail && <p className="mt-1 text-sm text-muted-foreground">{a.detail}</p>}
+                  {a.status === 'pending' && (
+                    <div className="mt-2 flex gap-2">
+                      <Button size="sm" onClick={() => decide.mutate({ id: a._id, status: 'approved' })}>Approve</Button>
+                      <Button size="sm" variant="outline" onClick={() => decide.mutate({ id: a._id, status: 'changes_requested' })}>Request changes</Button>
+                    </div>
+                  )}
+                </div>
+              )) : <p className="text-sm text-muted-foreground">Nothing waiting on you.</p>}
+            </SectionCard>
+          )}
+          {tab === 'requests' && (
+            <SectionCard title="Change request or brief">
+              {(d.tickets || []).length ? (d.tickets as Any[]).map((t) => (
+                <div key={t._id} className="mb-3 text-sm"><p className="font-medium">{t.title} <StatusPill value={t.status} /></p><p className="text-muted-foreground">{t.body}</p>{t.staffReply && <p className="mt-1">Reply: {t.staffReply}</p>}</div>
+              )) : null}
+              <FormStack>
+                <FormField><Label>Title</Label><Input value={ticket.title} onChange={(e) => setTicket({ ...ticket, title: e.target.value })} /></FormField>
+                <FormField><Label>Type</Label><Select value={ticket.kind} onChange={(e) => setTicket({ ...ticket, kind: e.target.value })}>{['change_request', 'brief', 'issue', 'question'].map((k) => <option key={k} value={k}>{humanize(k)}</option>)}</Select></FormField>
+                <FormField><Label>Details</Label><Textarea value={ticket.body} onChange={(e) => setTicket({ ...ticket, body: e.target.value })} /></FormField>
+                <FormActions><Button disabled={!ticket.title.trim() || fileTicket.isPending} onClick={() => fileTicket.mutate()}>{fileTicket.isPending ? 'Sending…' : 'Submit request'}</Button></FormActions>
+              </FormStack>
             </SectionCard>
           )}
         </PublicShell>
@@ -432,99 +495,146 @@ export function ReferPage() {
 }
 
 // ---------------------------------------------------------------- EGA application
-const EGA_OPTIONS = {
-  networkSize: ['0', '1–5', '6–10', '11–25', '25–50', '50+'],
-  weeklyHours: ['1–3 hours', '3–5 hours', '5–10 hours', '10+ hours'],
-  duration: ['Less than 3 months', '3–6 months', '6–12 months', '1+ year', 'I want to build a long-term association'],
-  interests: ['Sales', 'Marketing', 'Business development', 'Technology', 'Entrepreneurship'],
-  industries: ['Restaurants & cafes', 'Retail', 'Healthcare', 'Education', 'Real estate', 'Salons & fitness', 'Professional services', 'Manufacturing'],
-  networkSources: ['Family business', 'Friends & relatives', 'College network', 'Local community', 'Social media'],
-  services: ['Websites', 'CRM & automation', 'AI calling agents', 'Digital marketing'],
-};
-
 export function EgaApplyPage() {
   const { slug = '' } = useParams();
-  const [f, setF] = useState<Any>({ comfortApproach: 3, comfortColdCall: 3, comfortOutreach: 3, interests: [], industries: [], networkSources: [], services: [] });
+  const formQ = useQuery({ queryKey: ['ega-public', slug], queryFn: () => pub<Any>(slug, '/ega/form') });
+  const [answers, setAnswers] = useState<Any>({});
   const [done, setDone] = useState('');
-  const submit = useMutation({ mutationFn: () => pub<{ message: string }>(slug, '/ega', 'POST', f), onSuccess: (r) => setDone(r.message), onError: (e: Error) => toast.error(e.message) });
-  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
-  const multi = (k: keyof typeof EGA_OPTIONS) => (
-    <div className="flex flex-wrap gap-2">
-      {EGA_OPTIONS[k].map((o) => {
-        const on = (f[k] as string[]).includes(o);
-        return <button type="button" key={o} onClick={() => setF({ ...f, [k]: on ? f[k].filter((x: string) => x !== o) : [...f[k], o] })} className={cn('rounded-full border px-3 py-1 text-xs transition-colors', on ? 'border-primary bg-primary text-primary-foreground' : 'bg-card hover:border-primary/40')}>{o}</button>;
-      })}
-    </div>
-  );
-  const single = (k: keyof typeof EGA_OPTIONS) => <Select value={f[k] || ''} onChange={set(k)}><option value="">Select…</option>{EGA_OPTIONS[k].map((o) => <option key={o} value={o}>{o}</option>)}</Select>;
-  const scale = (k: string, label: string) => (
-    <FormField>
-      <Label>{label}</Label>
-      <div className="flex gap-2">{[1, 2, 3, 4, 5].map((n) => <button type="button" key={n} onClick={() => setF({ ...f, [k]: n })} className={cn('h-9 w-9 rounded-md border text-sm', f[k] === n ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>{n}</button>)}</div>
-    </FormField>
-  );
+  const submit = useMutation({
+    mutationFn: () => pub<{ message: string }>(slug, '/ega', 'POST', { answers }),
+    onSuccess: (r) => setDone(r.message),
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const set = (id: string, v: unknown) => setAnswers((prev: Any) => ({ ...prev, [id]: v }));
+  const renderField = (f: Any) => {
+    const v = answers[f.id];
+    if (f.type === 'textarea') return <Textarea value={v || ''} onChange={(e) => set(f.id, e.target.value)} placeholder={f.placeholder} />;
+    if (f.type === 'select') return <Select value={v || ''} onChange={(e) => set(f.id, e.target.value)}><option value="">Select…</option>{(f.options || []).map((o: Any) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>;
+    if (f.type === 'multiselect') {
+      const arr: string[] = Array.isArray(v) ? v : [];
+      return (
+        <div className="flex flex-wrap gap-2">
+          {(f.options || []).map((o: Any) => {
+            const on = arr.includes(o.value);
+            return <button type="button" key={o.value} onClick={() => set(f.id, on ? arr.filter((x) => x !== o.value) : [...arr, o.value])} className={cn('rounded-md border px-3 py-1 text-xs', on ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>{o.label}</button>;
+          })}
+        </div>
+      );
+    }
+    if (f.type === 'scale') {
+      return <div className="flex gap-2">{[1, 2, 3, 4, 5].map((n) => <button type="button" key={n} onClick={() => set(f.id, n)} className={cn('h-9 w-9 rounded-md border text-sm', v === n ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>{n}</button>)}</div>;
+    }
+    return <Input type={f.type === 'email' ? 'email' : 'text'} value={v || ''} onChange={(e) => set(f.id, e.target.value)} placeholder={f.placeholder} />;
+  };
   if (done) {
     return <PublicShell narrow><SectionCard><div className="flex flex-col items-center gap-2 py-10 text-center"><CheckCircle2 className="h-10 w-10 text-success" /><p className="text-lg font-medium">{done}</p><p className="text-sm text-muted-foreground">We review every application and will reach out if you're shortlisted.</p></div></SectionCard></PublicShell>;
   }
   return (
+    <PublicQuery q={formQ}>
+      {(cfg) => {
+        const fields: Any[] = cfg.published === false ? [] : cfg.fields || [];
+        const sections = [...new Set(fields.map((f) => f.section || 'Application'))];
+        if (cfg.published === false) {
+          return <PublicShell org={cfg.organization?.name} logo={cfg.organization?.logo} narrow><SectionCard><p className="py-10 text-center text-sm text-muted-foreground">This form is not open right now.</p></SectionCard></PublicShell>;
+        }
+        return (
+          <PublicShell org={cfg.organization?.name} logo={cfg.organization?.logo} narrow>
+            <div><h1 className="text-2xl font-semibold">{cfg.title}</h1><p className="text-sm text-muted-foreground">{cfg.subtitle}</p></div>
+            {sections.map((section) => (
+              <SectionCard key={section} title={section}>
+                <FormStack>
+                  {fields.filter((f) => (f.section || 'Application') === section).map((f) => (
+                    <FormField key={f.id}><Label>{f.label}{f.required ? ' *' : ''}</Label>{renderField(f)}{f.helpText && <p className="text-xs text-muted-foreground">{f.helpText}</p>}</FormField>
+                  ))}
+                </FormStack>
+              </SectionCard>
+            ))}
+            <FormActions><Button disabled={submit.isPending} onClick={() => submit.mutate()}>{submit.isPending ? 'Submitting…' : 'Submit application'}</Button></FormActions>
+          </PublicShell>
+        );
+      }}
+    </PublicQuery>
+  );
+}
+
+function SubscribeBox({ slug, source }: { slug: string; source: string }) {
+  const [email, setEmail] = useState('');
+  const [ok, setOk] = useState('');
+  const sub = useMutation({
+    mutationFn: () => pub<{ message: string }>(slug, '/newsletter', 'POST', { email, source }),
+    onSuccess: (r) => { setOk(r.message); setEmail(''); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  if (ok) return <p className="text-sm text-success">{ok}</p>;
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row">
+      <Input type="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <Button disabled={!email.trim() || sub.isPending} onClick={() => sub.mutate()}>{sub.isPending ? '…' : 'Subscribe'}</Button>
+    </div>
+  );
+}
+
+export function NewsletterSubscribePage() {
+  const { slug = '' } = useParams();
+  return (
     <PublicShell narrow>
-      <div><h1 className="text-2xl font-semibold">Editco Growth Associate</h1><p className="text-sm text-muted-foreground">Help local businesses grow with websites, automation and AI — and earn while you learn.</p></div>
-      <SectionCard title="About you">
-        <FormStack>
-          <FormRow>
-            <FormField><Label>Full name *</Label><Input value={f.fullName || ''} onChange={set('fullName')} /></FormField>
-            <FormField><Label>Email *</Label><Input type="email" value={f.email || ''} onChange={set('email')} /></FormField>
-          </FormRow>
-          <FormRow>
-            <FormField><Label>Phone</Label><Input value={f.phone || ''} onChange={set('phone')} /></FormField>
-            <FormField><Label>City</Label><Input value={f.city || ''} onChange={set('city')} /></FormField>
-          </FormRow>
-          <FormRow>
-            <FormField><Label>College</Label><Input value={f.college || ''} onChange={set('college')} /></FormField>
-            <FormField><Label>Year of study</Label><Input value={f.yearOfStudy || ''} onChange={set('yearOfStudy')} /></FormField>
-          </FormRow>
-          <FormField><Label>Specialisation</Label><Input value={f.specialization || ''} onChange={set('specialization')} /></FormField>
-          <FormField><Label>Tell us about yourself</Label><Textarea value={f.about || ''} onChange={set('about')} /></FormField>
-          <FormField><Label>Interests</Label>{multi('interests')}</FormField>
-          <FormField><Label>LinkedIn</Label><Input value={f.linkedin || ''} onChange={set('linkedin')} /></FormField>
-        </FormStack>
-      </SectionCard>
-      <SectionCard title="Your network">
-        <FormStack>
-          <FormField><Label>Do you personally know business owners?</Label><Select value={f.knowsOwners || ''} onChange={set('knowsOwners')}><option value="">Select…</option>{['Yes', 'No', 'A few'].map((o) => <option key={o}>{o}</option>)}</Select></FormField>
-          <FormField><Label>How many business owners could you reach?</Label>{single('networkSize')}</FormField>
-          <FormField><Label>Industries you have access to</Label>{multi('industries')}</FormField>
-          <FormField><Label>Where does your network come from?</Label>{multi('networkSources')}</FormField>
-        </FormStack>
-      </SectionCard>
-      <SectionCard title="Sales">
-        <FormStack>
-          <FormField><Label>Have you sold anything before?</Label><Select value={f.soldBefore || ''} onChange={set('soldBefore')}><option value="">Select…</option>{['Yes', 'No'].map((o) => <option key={o}>{o}</option>)}</Select></FormField>
-          {f.soldBefore === 'Yes' && <FormField><Label>Describe your sales experience</Label><Textarea value={f.salesExperience || ''} onChange={set('salesExperience')} /></FormField>}
-          {scale('comfortApproach', 'Comfort approaching business owners (1–5)')}
-          {scale('comfortColdCall', 'Comfort with cold calls (1–5)')}
-          {scale('comfortOutreach', 'Comfort with online outreach (1–5)')}
-          <FormField><Label>An owner says "I don't need a website." What do you say?</Label><Textarea value={f.websiteObjection || ''} onChange={set('websiteObjection')} /></FormField>
-          <FormField><Label>How do you handle rejection?</Label><Textarea value={f.rejectionResponse || ''} onChange={set('rejectionResponse')} /></FormField>
-          <FormField><Label>Services you'd be most confident selling</Label>{multi('services')}</FormField>
-          <FormField><Label>A local business you think we could help, and why</Label><Textarea value={f.exampleBusiness || ''} onChange={set('exampleBusiness')} /></FormField>
-        </FormStack>
-      </SectionCard>
-      <SectionCard title="Commitment">
-        <FormStack>
-          <FormRow>
-            <FormField><Label>Hours per week</Label>{single('weeklyHours')}</FormField>
-            <FormField><Label>How long would you like to work with us?</Label>{single('duration')}</FormField>
-          </FormRow>
-          <FormRow>
-            <FormField><Label>Open to performance-based pay?</Label><Select value={f.performanceBased || ''} onChange={set('performanceBased')}><option value="">Select…</option>{['Yes', 'No', 'Maybe'].map((o) => <option key={o}>{o}</option>)}</Select></FormField>
-            <FormField><Label>Willing to attend training?</Label><Select value={f.training || ''} onChange={set('training')}><option value="">Select…</option>{['Yes', 'No'].map((o) => <option key={o}>{o}</option>)}</Select></FormField>
-          </FormRow>
-          <FormField><Label>Why should we select you?</Label><Textarea value={f.whySelect || ''} onChange={set('whySelect')} /></FormField>
-          <FormField><Label>Anything else?</Label><Textarea value={f.anythingElse || ''} onChange={set('anythingElse')} /></FormField>
-          <FormActions><Button disabled={!f.fullName?.trim() || !f.email?.trim() || submit.isPending} onClick={() => submit.mutate()}>{submit.isPending ? 'Submitting…' : 'Submit application'}</Button></FormActions>
-        </FormStack>
-      </SectionCard>
+      <div><h1 className="text-2xl font-semibold">Subscribe</h1><p className="text-sm text-muted-foreground">Get issues and campaigns in your inbox.</p></div>
+      <SectionCard><SubscribeBox slug={slug} source="subscribe_page" /></SectionCard>
+      <p className="text-sm"><Link className="underline" to={`/magazine/${slug}`}>Read the magazine</Link></p>
     </PublicShell>
+  );
+}
+
+export function MagazineHomePage() {
+  const { slug = '' } = useParams();
+  const q = useQuery({ queryKey: ['magazine', slug], queryFn: () => pub<Any>(slug, '/magazine') });
+  return (
+    <PublicQuery q={q}>
+      {(d) => (
+        <PublicShell org={d.organization.name} logo={d.organization.logo}>
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div><p className="text-sm text-muted-foreground">Magazine</p><h1 className="text-3xl font-semibold">{d.organization.name}</h1></div>
+            <div className="md:w-80"><SubscribeBox slug={slug} source="magazine" /></div>
+          </div>
+          {!d.articles?.length && <SectionCard><p className="py-8 text-center text-sm text-muted-foreground">No stories published yet.</p></SectionCard>}
+          <div className="grid gap-6 md:grid-cols-2">
+            {(d.articles || []).map((a: Any) => (
+              <Link key={a._id} to={`/magazine/${slug}/${a.slug}`} className="block">
+                <SectionCard>
+                  {a.cover && <img src={a.cover} alt="" className="mb-3 h-40 w-full object-cover" />}
+                  <p className="text-xs text-muted-foreground">{fmtDate(a.publishedAt)}</p>
+                  <h2 className="text-lg font-semibold">{a.title}</h2>
+                  {a.excerpt && <p className="mt-1 text-sm text-muted-foreground">{a.excerpt}</p>}
+                </SectionCard>
+              </Link>
+            ))}
+          </div>
+        </PublicShell>
+      )}
+    </PublicQuery>
+  );
+}
+
+export function MagazineArticlePage() {
+  const { slug = '', articleSlug = '' } = useParams();
+  const q = useQuery({ queryKey: ['magazine', slug, articleSlug], queryFn: () => pub<Any>(slug, `/magazine/${articleSlug}`) });
+  return (
+    <PublicQuery q={q}>
+      {(d) => (
+        <PublicShell org={d.organization.name} logo={d.organization.logo} narrow>
+          <Link to={`/magazine/${slug}`} className="text-sm text-muted-foreground hover:underline">← Magazine</Link>
+          <p className="text-xs text-muted-foreground">{fmtDate(d.article.publishedAt)}</p>
+          <h1 className="text-3xl font-semibold">{d.article.title}</h1>
+          {d.article.cover && <img src={d.article.cover} alt="" className="h-56 w-full object-cover" />}
+          <article className="whitespace-pre-wrap text-sm leading-relaxed">{d.article.body}</article>
+          <SectionCard title="Subscribe"><SubscribeBox slug={slug} source="article" /></SectionCard>
+          {!!d.more?.length && (
+            <SectionCard title="More">
+              <ul className="flex flex-col gap-2">{d.more.map((a: Any) => <li key={a.slug}><Link className="hover:underline" to={`/magazine/${slug}/${a.slug}`}>{a.title}</Link></li>)}</ul>
+            </SectionCard>
+          )}
+        </PublicShell>
+      )}
+    </PublicQuery>
   );
 }

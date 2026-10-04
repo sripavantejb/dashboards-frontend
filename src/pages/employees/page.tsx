@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { Link } from 'react-router';
+import { Plus, Trash2, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth';
@@ -54,12 +55,17 @@ export default function EmployeesPage() {
       <PageHeader
         title="Employees"
         description={isCompanyAdmin
-          ? 'Create employee logins and assign roles for your company'
+          ? 'Logins for your company. Role “sales” opens the BDA portal. Manage modules and territories in Sales CRM → Team.'
           : 'Team members in your organization'}
         action={isCompanyAdmin ? (
-          <Button className="w-full sm:w-auto" onClick={() => setShowNew(true)}>
-            <Plus className="h-4 w-4 mr-2" /> Add Employee Login
-          </Button>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Button variant="outline" className="w-full sm:w-auto" asChild>
+              <Link to="/sales-crm/team"><ExternalLink className="mr-2 h-4 w-4" />Sales team & modules</Link>
+            </Button>
+            <Button className="w-full sm:w-auto" onClick={() => setShowNew(true)}>
+              <Plus className="h-4 w-4 mr-2" /> Add Employee Login
+            </Button>
+          </div>
         ) : undefined}
       />
 
@@ -76,7 +82,8 @@ export default function EmployeesPage() {
                     <p className="text-xs text-muted-foreground truncate">{u.email}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                  {u.role === 'sales' && <Badge variant="outline">BDA portal</Badge>}
                   <select className="h-8 rounded-md border border-input bg-background px-2 text-xs capitalize" value={u.role}
                     onChange={(e) => updateUser.mutate({ id: u._id, updates: { role: e.target.value } })}>
                     {['admin', 'manager', 'sales', 'marketing', 'hr', 'finance', 'operations', 'developer'].map((r) => (
@@ -96,7 +103,14 @@ export default function EmployeesPage() {
 
       <SimpleModal open={showNew} onClose={() => setShowNew(false)} title="Add Employee Login">
         <FormStack>
-          <p className="text-sm text-muted-foreground mb-2">Create login credentials for a team member. They will sign in at /login with the email and password you set.</p>
+          <p className="text-sm text-muted-foreground mb-2">
+            Create login credentials for a team member. They sign in at /login.
+            {form.role === 'sales' && (
+              <span className="mt-2 block rounded-md border border-hairline bg-surface-soft px-3 py-2 text-foreground">
+                <strong>BDA portal:</strong> sales employees get a dedicated LeadSquared-style workspace at <code className="text-xs">/bda</code> (leads, calls, follow-ups, deals). They will not see Finance, Ops, or other agency modules.
+              </span>
+            )}
+          </p>
           <FormRow>
             <FormField><Label>First Name *</Label><Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} /></FormField>
             <FormField><Label>Last Name *</Label><Input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} /></FormField>

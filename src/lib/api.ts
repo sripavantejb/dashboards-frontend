@@ -1,7 +1,10 @@
 import { useAuthStore } from '@/stores/auth';
 import { ADMIN_LOGIN_PATH, PLATFORM_ADMIN_PATH } from '@/lib/admin-routes';
 
-const API_URL = import.meta.env.VITE_API_URL || import.meta.env.NEXT_PUBLIC_API_URL || 'https://dashboard-backend-pi-ten.vercel.app/api/v1';
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  import.meta.env.NEXT_PUBLIC_API_URL ||
+  (import.meta.env.DEV ? 'http://localhost:5000/api/v1' : 'https://dashboard-backend-pi-ten.vercel.app/api/v1');
 
 interface ApiOptions extends RequestInit {
   token?: string;

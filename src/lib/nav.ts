@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Table, Users, Kanban, ListTodo, FileText, Archive, Building2, Link2, FolderKanban,
   CheckSquare, CalendarDays, FileStack, TrendingUp, ArrowLeftRight, Receipt, Wallet, Repeat, AlertCircle,
   KeyRound, Activity, BarChart3, Settings, UserCog, Layers, Factory, Gift, Briefcase, Inbox, Sparkles, Mail,
-  Store, Phone, Import, Zap, Bell, type LucideIcon,
+  Store, Phone, Import, Zap, Bell, Newspaper, Images, BookOpen, CalendarRange, Umbrella, ScrollText, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -27,11 +27,11 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: 'Editco',
+    title: 'Tracker',
     items: [{ name: 'Master Tracker', href: '/tracker', icon: Table, permission: 'tracker:write' }],
   },
   {
-    title: 'Sales',
+    title: 'Sales (agency)',
     items: [
       { name: 'Leads', href: '/crm', icon: Users, permission: 'leads:read' },
       { name: 'Pipeline', href: '/pipeline', icon: Kanban, permission: 'leads:read' },
@@ -54,6 +54,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { name: 'Tasks', href: '/tasks', icon: CheckSquare, permission: 'tasks:read' },
       { name: 'Meetings', href: '/meetings', icon: CalendarDays, permission: 'meetings:read' },
       { name: 'Documents', href: '/documents', icon: FileStack, permission: 'documents:read' },
+      { name: 'Assets', href: '/assets', icon: Images, permission: 'documents:read' },
+      { name: 'SOW Templates', href: '/sow-templates', icon: ScrollText, permission: 'documents:read' },
     ],
   },
   {
@@ -74,6 +76,9 @@ export const NAV_SECTIONS: NavSection[] = [
       { name: 'Activity', href: '/activity', icon: Activity, permission: 'activity:read' },
       { name: 'Analytics', href: '/analytics', icon: BarChart3, permission: 'analytics:read' },
       { name: 'Automation', href: '/automation', icon: Zap, permission: 'settings:write' },
+      { name: 'Leave', href: '/leave', icon: Umbrella, permission: 'leaves:read' },
+      { name: 'Knowledge', href: '/knowledge', icon: BookOpen, permission: 'knowledge:read' },
+      { name: 'Content Calendar', href: '/content-calendar', icon: CalendarRange, permission: 'campaigns:read' },
     ],
   },
   {
@@ -85,11 +90,12 @@ export const NAV_SECTIONS: NavSection[] = [
       { name: 'Applications', href: '/growth/applications', icon: Inbox, permission: 'growth:read' },
       { name: 'EGA', href: '/growth/ega', icon: Sparkles, permission: 'growth:read' },
       { name: 'Newsletter', href: '/growth/newsletter', icon: Mail, permission: 'growth:read' },
+      { name: 'Magazine', href: '/growth/magazine', icon: Newspaper, permission: 'growth:read' },
     ],
   },
   {
-    title: 'Sales CRM',
-    items: [{ name: 'Sales CRM', href: '/sales-crm', icon: Store, permission: 'sales_crm:read', roles: ['sales'] }],
+    title: 'Sales team (BDA)',
+    items: [{ name: 'Sales CRM', href: '/sales-crm', icon: Store, permission: 'sales_crm:read' }],
   },
   {
     title: 'Admin',

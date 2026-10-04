@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -92,6 +93,49 @@
 }
 
 @layer components {
+  /* BDA portal — sales workspace atmosphere (scoped; ERP shell unchanged) */
+  .bda-portal {
+    font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
+    color: hsl(var(--foreground));
+    background:
+      radial-gradient(1200px 520px at 12% -10%, rgba(15, 23, 42, 0.06), transparent 55%),
+      radial-gradient(900px 420px at 92% 0%, rgba(14, 165, 233, 0.08), transparent 50%),
+      linear-gradient(180deg, #f4f6f8 0%, #eef1f4 42%, #f7f8fa 100%);
+  }
+
+  .bda-portal .font-display,
+  .bda-portal h1,
+  .bda-portal h2,
+  .bda-portal h3 {
+    font-family: 'Sora', 'Plus Jakarta Sans', system-ui, sans-serif;
+  }
+
+  .bda-sidebar {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.94) 100%);
+    backdrop-filter: blur(12px);
+  }
+
+  .bda-topbar {
+    background: rgba(255, 255, 255, 0.72);
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+    backdrop-filter: blur(14px);
+  }
+
+  .bda-deal-board {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(15, 23, 42, 0.18) transparent;
+  }
+
+  .bda-deal-board::-webkit-scrollbar {
+    height: 8px;
+  }
+
+  .bda-deal-board::-webkit-scrollbar-thumb {
+    background: rgba(15, 23, 42, 0.16);
+    border-radius: 999px;
+  }
+
   .section-enter {
     @apply animate-in fade-in slide-in-from-bottom-4 duration-500;
   }

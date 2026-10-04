@@ -1,4 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router';
 import { api } from '@/lib/api';
 import { PageHeader } from '@/components/layout/page-header';
 import { Card, CardContent } from '@/components/ui/card';
@@ -7,7 +8,9 @@ import { PageError, PageLoading } from '@/components/shared/page-states';
 import { formatDate } from '@/lib/utils';
 import type { Notification } from '@/types';
 
+/** Shared inbox for ERP and BDA — opens the deep link when present. */
 export default function NotificationsPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -33,11 +36,17 @@ export default function NotificationsPage() {
 
   const notifications = data?.data || [];
 
+  const openNotif = (notif: Notification) => {
+    if (!notif.read) markRead.mutate(notif._id);
+    const href = notif.metadata?.href;
+    if (href) navigate(href);
+  };
+
   return (
     <>
       <PageHeader
         title="Notifications"
-        description="Stay updated on all activities"
+        description="Assignments, nudges, and escalations from your team"
         action={
           <Button variant="outline" className="w-full sm:w-auto" onClick={() => markAllRead.mutate()} disabled={markAllRead.isPending}>
             Mark all as read
@@ -52,22 +61,23 @@ export default function NotificationsPage() {
           ) : isError ? (
             <div className="p-5 lg:p-6"><PageError onRetry={() => refetch()} /></div>
           ) : notifications.length === 0 ? (
-            <div className="p-12 text-center text-muted-foreground">No notifications</div>
+            <div className="p-12 text-center text-muted-foreground">No notifications yet. When a manager assigns a lead or nudges you, it appears here.</div>
           ) : (
             <div className="card-list">
               {notifications.map((notif) => (
                 <button
                   key={notif._id}
                   type="button"
-                  onClick={() => !notif.read && markRead.mutate(notif._id)}
+                  onClick={() => openNotif(notif)}
                   className={`flex w-full items-start gap-4 p-4 lg:p-5 text-left transition-colors hover:bg-surface-soft ${!notif.read ? 'bg-surface-soft' : ''}`}
                 >
-                  <div className={`mt-1 h-2 w-2 rounded-full shrink-0 ${!notif.read ? 'bg-accent' : 'bg-transparent'}`} />
-                  <div className="flex-1 min-w-0">
+                  <div className={`mt-1 h-2 w-2 shrink-0 rounded-full ${!notif.read ? 'bg-accent' : 'bg-transparent'}`} />
+                  <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium">{notif.title}</p>
-                    <p className="text-sm text-muted-foreground mt-0.5">{notif.message}</p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">{notif.message}</p>
+                    {notif.metadata?.href && <p className="mt-1 text-xs text-primary">Open →</p>}
                   </div>
-                  <span className="text-xs text-muted-foreground shrink-0">{formatDate(notif.createdAt)}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{formatDate(notif.createdAt)}</span>
                 </button>
               ))}
             </div>

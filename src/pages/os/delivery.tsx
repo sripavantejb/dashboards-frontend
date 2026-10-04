@@ -112,6 +112,8 @@ export function ProjectWorkspacePage() {
               </Select>
             ) : <StatusPill value={project.status} />}
             {can('invoices:write') && <Button variant="outline" onClick={() => navigate(`/invoices/new?projectId=${project._id}`)}>New invoice</Button>}
+            {can('documents:read') && <Button variant="outline" onClick={() => navigate(`/assets?projectId=${project._id}`)}>Assets</Button>}
+            {can('documents:write') && <Button variant="outline" onClick={() => navigate(`/sow-templates?project=${encodeURIComponent(project.name)}&client=${encodeURIComponent(data.vendor?.companyName || '')}&conversionUuid=${project.conversionUuid || ''}`)}>Create SOW</Button>}
           </>
         }
       />
@@ -395,7 +397,7 @@ export function TasksPage() {
   });
   return (
     <>
-      <PageHeader title="Tasks" description="Assignments across projects, with dependencies and time tracking."
+      <PageHeader title="Tasks" description="Assignments across projects. Assigning a sales / BDA teammate also puts the task on their BDA portal (My Day → Tasks)."
         action={can('tasks:write') && <Button className="w-full sm:w-auto" onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New task</Button>} />
       <Tabs value={view} onChange={(v) => setParams({ view: v })} tabs={TASK_VIEWS.map((v) => ({ id: v, label: v === 'my' ? 'My tasks' : humanize(v) }))} />
       <Input className="sm:max-w-xs" placeholder="Search tasks…" value={search} onChange={(e) => setSearch(e.target.value)} />

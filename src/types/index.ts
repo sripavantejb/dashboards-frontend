@@ -82,6 +82,7 @@ export interface Notification {
   message: string;
   read: boolean;
   createdAt: string;
+  metadata?: { href?: string; kind?: string };
 }
 
 export interface DashboardStats {

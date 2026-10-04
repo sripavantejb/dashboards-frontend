@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router';
 import { ADMIN_LOGIN_PATH, DEFAULT_ADMIN_LOGIN_PATH, PLATFORM_ADMIN_PATH } from '@/lib/admin-routes';
 import DashboardLayout from '@/layouts/dashboard-layout';
+import BdaLayout from '@/layouts/bda-layout';
 import AdminLayout from '@/layouts/admin-layout';
 import HomePage from '@/pages/home/page';
 import LoginPage from '@/pages/login/page';
@@ -36,14 +37,16 @@ import { ClientDetailPage, ClientsPage, ConversionHubPage, ConversionsPage } fro
 import { DocumentsPage, MeetingsPage, ProjectWorkspacePage, ProjectsPage, TaskDetailPage, TasksPage } from '@/pages/os/delivery';
 import { InvoiceEditorPage, InvoicesPage, OutstandingPage, PaymentsPage, RecurringPaymentsPage, RevenuePage, TransactionsPage } from '@/pages/os/finance';
 import { ActivityPage, AnalyticsPage, CredentialsPage, IndustriesPage, ServicesPage, TrackerPage, VaultDetailPage, VaultPage } from '@/pages/os/operations';
-import { ApplicationsPage, EgaPage, JobsPage, NewsletterPage, ReferralsPage, RewardsPage } from '@/pages/os/growth';
+import { ApplicationsPage, EgaPage, JobsPage, MagazinePage, NewsletterPage, ReferralsPage, RewardsPage } from '@/pages/os/growth';
+import { AssetsPage, ContentCalendarPage, KnowledgePage, LeavePage, SowPage } from '@/pages/os/agency';
+import { CareerJobPage, CareersPage, EgaApplyPage, MagazineArticlePage, MagazineHomePage, NewsletterSubscribePage, PortalInvoicePage, PortalPage, ReferPage, TrackPage } from '@/pages/os/public';
 import {
   SalesAnalyticsPage, SalesApprovalsPage, SalesAttendancePage, SalesCalendarPage, SalesCallsPage, SalesCrmLayout, SalesCustomersPage,
   SalesDashboardPage, SalesDealDetailPage, SalesDealsPage, SalesEmployeeDetailPage, SalesFollowUpsPage, SalesLeadDetailPage, SalesLeadsPage,
-  SalesLeaderboardPage, SalesMeetingsPage, SalesPerformancePage, SalesProposalsPage, SalesQuotationsPage, SalesTargetsPage, SalesTasksPage,
+  SalesLeaderboardPage, SalesMeetingsPage, SalesMessagesPage, SalesMyDayPage, SalesPerformancePage, SalesProposalsPage, SalesQuotationsPage, SalesTargetsPage, SalesTasksPage,
   SalesTeamPage, SalesTerritoriesPage, SalesWorkStatusPage,
 } from '@/pages/os/sales-crm';
-import { CareerJobPage, CareersPage, EgaApplyPage, PortalInvoicePage, PortalPage, ReferPage, TrackPage } from '@/pages/os/public';
+import { SalesPhonePage } from '@/components/sales/phone-companion';
 
 function LegacyAdminRedirect() {
   const { pathname, search } = useLocation();
@@ -74,6 +77,9 @@ export default function App() {
       <Route path="/careers/:slug/:jobSlug" element={<CareerJobPage />} />
       <Route path="/refer/:slug" element={<ReferPage />} />
       <Route path="/ega/:slug" element={<EgaApplyPage />} />
+      <Route path="/magazine/:slug" element={<MagazineHomePage />} />
+      <Route path="/magazine/:slug/:articleSlug" element={<MagazineArticlePage />} />
+      <Route path="/newsletter/:slug" element={<NewsletterSubscribePage />} />
 
       <Route element={<DashboardLayout />}>
         <Route path="/dashboard" element={<OsDashboardPage />} />
@@ -106,6 +112,12 @@ export default function App() {
         <Route path="/tasks/:id" element={<TaskDetailPage />} />
         <Route path="/meetings" element={<MeetingsPage />} />
         <Route path="/documents" element={<DocumentsPage />} />
+        <Route path="/assets" element={<AssetsPage />} />
+        <Route path="/sow-templates" element={<SowPage />} />
+        <Route path="/sows" element={<SowPage />} />
+        <Route path="/knowledge" element={<KnowledgePage />} />
+        <Route path="/content-calendar" element={<ContentCalendarPage />} />
+        <Route path="/leave" element={<LeavePage />} />
 
         <Route path="/revenue" element={<RevenuePage />} />
         <Route path="/transactions" element={<TransactionsPage />} />
@@ -130,17 +142,20 @@ export default function App() {
         <Route path="/growth/applications" element={<ApplicationsPage />} />
         <Route path="/growth/ega" element={<EgaPage />} />
         <Route path="/growth/newsletter" element={<NewsletterPage />} />
+        <Route path="/growth/magazine" element={<MagazinePage />} />
 
         <Route path="/sales-crm" element={<SalesCrmLayout />}>
           <Route index element={<SalesDashboardPage />} />
           <Route path="leads" element={<SalesLeadsPage />} />
           <Route path="leads/:id" element={<SalesLeadDetailPage />} />
+          <Route path="phone" element={<SalesPhonePage />} />
           <Route path="deals" element={<SalesDealsPage />} />
           <Route path="deals/:id" element={<SalesDealDetailPage />} />
           <Route path="customers" element={<SalesCustomersPage />} />
           <Route path="calls" element={<SalesCallsPage />} />
           <Route path="meetings" element={<SalesMeetingsPage />} />
           <Route path="follow-ups" element={<SalesFollowUpsPage />} />
+          <Route path="messages" element={<SalesMessagesPage />} />
           <Route path="quotations" element={<SalesQuotationsPage />} />
           <Route path="proposals" element={<SalesProposalsPage />} />
           <Route path="tasks" element={<SalesTasksPage />} />
@@ -162,6 +177,34 @@ export default function App() {
         <Route path="/settings/profile" element={<ProfileSettingsPage />} />
         <Route path="/settings/services" element={<ServicesPage />} />
         <Route path="/settings/industries" element={<IndustriesPage />} />
+      </Route>
+
+      <Route path="/bda" element={<BdaLayout />}>
+        <Route element={<SalesCrmLayout basePath="/bda" />}>
+          <Route index element={<SalesMyDayPage />} />
+          <Route path="notifications" element={<NotificationsPage />} />
+          <Route path="dashboard" element={<SalesDashboardPage />} />
+          <Route path="leads" element={<SalesLeadsPage />} />
+          <Route path="leads/:id" element={<SalesLeadDetailPage />} />
+          <Route path="phone" element={<SalesPhonePage />} />
+          <Route path="deals" element={<SalesDealsPage />} />
+          <Route path="deals/:id" element={<SalesDealDetailPage />} />
+          <Route path="customers" element={<SalesCustomersPage />} />
+          <Route path="calls" element={<SalesCallsPage />} />
+          <Route path="meetings" element={<SalesMeetingsPage />} />
+          <Route path="follow-ups" element={<SalesFollowUpsPage />} />
+          <Route path="messages" element={<SalesMessagesPage />} />
+          <Route path="quotations" element={<SalesQuotationsPage />} />
+          <Route path="proposals" element={<SalesProposalsPage />} />
+          <Route path="tasks" element={<SalesTasksPage />} />
+          <Route path="calendar" element={<SalesCalendarPage />} />
+          <Route path="approvals" element={<SalesApprovalsPage />} />
+          <Route path="attendance" element={<SalesAttendancePage />} />
+          <Route path="work-status" element={<SalesWorkStatusPage />} />
+          <Route path="targets" element={<SalesTargetsPage />} />
+          <Route path="performance" element={<SalesPerformancePage />} />
+          <Route path="leaderboard" element={<SalesLeaderboardPage />} />
+        </Route>
       </Route>
 
       <Route path={PLATFORM_ADMIN_PATH} element={<AdminLayout />}>

@@ -175,7 +175,11 @@ export default function OsDashboardPage() {
       </PageGrid>
 
       {d.canSeeAll && d.workload.length > 0 && (
-        <SectionCard title="Team workload" bodyClassName="p-0">
+        <SectionCard
+          title="Team workload"
+          action={<p className="max-w-xs text-right text-xs text-muted-foreground">Nudge sends a check-in notification (not a new task). Sales/BDA people open it in their portal.</p>}
+          bodyClassName="p-0"
+        >
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
@@ -190,7 +194,16 @@ export default function OsDashboardPage() {
                     <td className="px-5 py-3 tabular-nums">{w.blocked}</td>
                     <td className="px-5 py-3 tabular-nums">{w.completed}</td>
                     <td className="px-5 py-3 text-right">
-                      {w.id !== user?.id && <Button size="sm" variant="ghost" onClick={() => nudge.mutate(w)}><Briefcase className="mr-1.5 h-3.5 w-3.5" />Nudge</Button>}
+                      {w.id !== user?.id && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          title="Send a workload check-in notification to this teammate"
+                          onClick={() => nudge.mutate(w)}
+                        >
+                          <Briefcase className="mr-1.5 h-3.5 w-3.5" />Nudge
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -199,6 +212,19 @@ export default function OsDashboardPage() {
           </div>
         </SectionCard>
       )}
+
+      <SectionCard title="Where to work">
+        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+          {can('growth:read') && <Link className="hover:underline" to="/growth/ega">EGA form</Link>}
+          {can('growth:read') && <Link className="hover:underline" to="/growth/magazine">Magazine</Link>}
+          {can('growth:read') && <Link className="hover:underline" to="/growth/newsletter">Campaigns</Link>}
+          {can('documents:read') && <Link className="hover:underline" to="/assets">Assets</Link>}
+          {can('documents:read') && <Link className="hover:underline" to="/sow-templates">SOW</Link>}
+          {can('knowledge:read') && <Link className="hover:underline" to="/knowledge">Knowledge</Link>}
+          {can('campaigns:read') && <Link className="hover:underline" to="/content-calendar">Content calendar</Link>}
+          {can('leaves:read') && <Link className="hover:underline" to="/leave">Leave</Link>}
+        </div>
+      </SectionCard>
     </>
   );
 }

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { AuthSplitLayout } from '@/components/auth/auth-split-layout';
 import { api } from '@/lib/api';
+import { resolvePostLoginPath } from '@/lib/portal-home';
 import { useAuthStore } from '@/stores/auth';
 import type { User, Organization } from '@/types';
 import { useNavigate } from 'react-router';
@@ -44,7 +45,8 @@ export default function LoginPage() {
           response.data.refreshToken
         );
         toast.success('Welcome back!');
-        navigate('/dashboard');
+        const home = await resolvePostLoginPath(response.data.user.role);
+        navigate(home);
       } else {
         toast.error(response.error?.message || 'Login failed');
       }

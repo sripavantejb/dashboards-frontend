@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router';
+import { PortalInbox } from '@/pages/os/agency';
 import { Copy, ExternalLink, Link2, Plus, RefreshCw, ShieldOff, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -176,7 +177,7 @@ function RollupCards({ rollup }: { rollup: Any }) {
   );
 }
 
-function ClientRecords({ projects, invoices, payments, meetings, documents, activity }: Any) {
+function ClientRecords({ projects, invoices, payments, meetings, documents, activity, conversion }: Any) {
   return (
     <>
       <SectionCard title="Projects" bodyClassName="p-0">
@@ -214,6 +215,7 @@ function ClientRecords({ projects, invoices, payments, meetings, documents, acti
           )) : <p className="text-sm text-muted-foreground">No documents.</p>}
         </SectionCard>
       </PageGrid>
+      {conversion?.conversionUuid && <PortalInbox conversionUuid={conversion.conversionUuid} />}
       <SectionCard title="Activity">
         {activity?.length ? (
           <ul className="flex flex-col gap-2">
@@ -244,6 +246,7 @@ export function ConversionHubPage() {
         action={
           <>
             {vendor && <Button variant="outline" asChild><Link to={`/clients/${vendor._id}`}>Client record</Link></Button>}
+            {can('documents:write') && <Button variant="outline" asChild><Link to={`/sow-templates?client=${encodeURIComponent(vendor?.companyName || '')}&conversionUuid=${conversion.conversionUuid}`}>Create SOW</Link></Button>}
             <Button variant="outline" asChild><a href={`/track/${data.organizationSlug}/${conversion.publicCode}`} target="_blank" rel="noreferrer">Public tracking</a></Button>
           </>
         }

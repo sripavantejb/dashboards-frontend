@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from 'react-router';
-import { ArrowLeft, Check, Copy, LogIn, LogOut, Phone, Plus, Trash2, X } from 'lucide-react';
+import { Link, NavLink, Outlet, useLocation, useNavigate, useOutletContext, useParams } from 'react-router';
+import { ArrowLeft, Check, ChevronDown, Copy, LayoutGrid, List, LogIn, LogOut, Phone, Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,9 @@ import { SimpleModal } from '@/components/shared/simple-modal';
 import { PageError, PageLoading } from '@/components/shared/page-states';
 import { FieldInput, type FieldDef } from '@/components/shared/resource-page';
 import { DataTable, KeyValue, ProgressBar, SectionCard, Select, StatCard, StatusPill, Textarea, fmtDate, fmtDateTime, humanize, inr, type Column } from '@/components/shared/os-ui';
+import { CALL_OUTCOMES, formatStoredDuration } from '@/lib/calling';
+import { CallAnalytics } from '@/components/sales/call-analytics';
+import { CallHistory, LeadCallProvider, useLeadCall } from '@/components/sales/lead-call';
 
 type Any = Record<string, any>;
 const onErr = (e: Error) => toast.error(e.message);
@@ -21,7 +24,6 @@ const LEAD_SOURCES = ['website', 'referral', 'instagram', 'facebook', 'linkedin'
 const LEAD_STATUSES = ['new', 'contacted', 'qualified', 'unqualified', 'converted', 'lost'];
 const DEAL_STAGES = ['new', 'contacted', 'qualified', 'meeting', 'proposal', 'negotiation', 'won', 'lost'];
 const LOST_REASONS = ['price_objection', 'timing_issue', 'requirement_mismatch', 'chose_competitor', 'no_response', 'other'];
-const CALL_OUTCOMES = ['connected', 'no_answer', 'busy', 'interested', 'not_interested', 'callback', 'qualified', 'other'];
 const MEETING_TYPES = ['discovery', 'demo', 'proposal', 'negotiation', 'internal', 'other'];
 const MEETING_STATUSES = ['scheduled', 'completed', 'cancelled', 'rescheduled', 'no_show'];
 const FOLLOWUP_TYPES = ['call', 'email', 'whatsapp', 'meeting', 'other'];
@@ -45,8 +47,13 @@ const MODULE_GROUPS: [string, string[]][] = [
 ];
 const ADMIN_ONLY = new Set(['dashboard.manager', 'leads.assignment', 'workforce.attendance_dashboard', 'workforce.live_status', 'workforce.activity_tracking', 'workforce.activity_timeline', 'analytics.revenue', 'analytics.conversion', 'analytics.lead_source', 'analytics.lost_deals', 'reports.reports', 'reports.export', 'admin.teams', 'admin.territories', 'admin.audit_logs']);
 
-interface SalesMe { employee: Any; isSalesAdmin: boolean; modules: Record<string, boolean>; name: string }
+interface SalesMe { employee: Any; isSalesAdmin: boolean; modules: Record<string, boolean>; name: string; basePath: string }
 const useMe = () => useOutletContext<SalesMe>();
+/** UI portal path (/sales-crm or /bda) — never use for API calls. */
+const usePortalPath = () => {
+  const { basePath } = useMe();
+  return (...parts: string[]) => [basePath, ...parts.filter(Boolean)].join('/');
+};
 
 function useSales<T = any>(path: string, enabled = true) {
   return useQuery({ queryKey: ['sales', path], queryFn: () => api.data<T>(`/sales-crm${path}`), enabled });
@@ -108,6 +115,7 @@ const TABS: { to: string; label: string; show: (m: SalesMe) => boolean }[] = [
   { to: 'deals', label: 'Deals', show: (m) => m.modules['sales.deals'] },
   { to: 'customers', label: 'Customers', show: (m) => m.modules['customers.management'] },
   { to: 'calls', label: 'Calls', show: (m) => m.modules['comm.calls'] },
+  { to: 'phone', label: 'Link phone', show: (m) => m.modules['comm.calls'] },
   { to: 'meetings', label: 'Meetings', show: (m) => m.modules['comm.meetings'] },
   { to: 'follow-ups', label: 'Follow-ups', show: (m) => m.modules['comm.followups'] },
   { to: 'quotations', label: 'Quotations', show: (m) => m.modules['docs.quotations'] },
@@ -120,13 +128,143 @@ const TABS: { to: string; label: string; show: (m: SalesMe) => boolean }[] = [
   { to: 'targets', label: 'Targets', show: (m) => m.isSalesAdmin || m.modules['perf.targets'] },
   { to: 'performance', label: 'Performance', show: (m) => m.isSalesAdmin || m.modules['perf.performance'] || m.modules['perf.productivity'] || m.modules['sales.forecast'] },
   { to: 'leaderboard', label: 'Leaderboard', show: (m) => m.isSalesAdmin || m.modules['perf.leaderboard'] },
+  { to: 'messages', label: 'Email / WhatsApp', show: (m) => m.modules['comm.email_whatsapp'] },
   { to: 'team', label: 'Team', show: (m) => m.isSalesAdmin },
   { to: 'territories', label: 'Territories', show: (m) => m.isSalesAdmin },
   { to: 'analytics', label: 'Analytics', show: (m) => m.isSalesAdmin },
 ];
 
-export function SalesCrmLayout() {
-  const q = useQuery({ queryKey: ['sales', '/me'], queryFn: () => api.data<SalesMe>('/sales-crm/me'), retry: false });
+const PRIMARY_TAB_KEYS = new Set(['', 'leads', 'deals', 'customers']);
+const NAV_GROUPS: { id: string; label: string; keys: string[] }[] = [
+  { id: 'communicate', label: 'Communicate', keys: ['calls', 'phone', 'meetings', 'follow-ups', 'messages'] },
+  { id: 'documents', label: 'Documents', keys: ['quotations', 'proposals'] },
+  { id: 'work', label: 'Work', keys: ['tasks', 'calendar', 'approvals', 'attendance', 'work-status'] },
+  { id: 'performance', label: 'Performance', keys: ['targets', 'performance', 'leaderboard'] },
+  { id: 'admin', label: 'Admin', keys: ['team', 'territories', 'analytics'] },
+];
+
+function SalesNavLink({ to, end, children }: { to: string; end?: boolean; children: React.ReactNode }) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      className={({ isActive }) =>
+        cn(
+          'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+          isActive ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-surface-soft hover:text-foreground'
+        )
+      }
+    >
+      {children}
+    </NavLink>
+  );
+}
+
+function SalesNavGroup({
+  label,
+  items,
+  basePath,
+}: {
+  label: string;
+  items: { to: string; label: string }[];
+  basePath: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const { pathname } = useLocation();
+  const active = items.some((i) => {
+    const href = i.to ? `${basePath}/${i.to}` : basePath;
+    return pathname === href || pathname.startsWith(`${href}/`);
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  if (!items.length) return null;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          'inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+          active || open ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-surface-soft hover:text-foreground'
+        )}
+        aria-expanded={open}
+      >
+        {label}
+        <ChevronDown className={cn('h-3.5 w-3.5 opacity-70 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-40 mt-1.5 min-w-[200px] overflow-hidden rounded-lg border border-hairline bg-white py-1 shadow-lg">
+          {items.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to ? `${basePath}/${item.to}` : basePath}
+              onClick={() => setOpen(false)}
+              className={({ isActive }) =>
+                cn(
+                  'block px-3 py-2 text-sm transition-colors',
+                  isActive ? 'bg-surface-soft font-medium text-foreground' : 'text-muted-foreground hover:bg-surface-soft hover:text-foreground'
+                )
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SalesCrmNav({ me, basePath }: { me: SalesMe; basePath: string }) {
+  const visible = useMemo(
+    () => TABS.filter((t) => t.show(me) && !(basePath === '/bda' && ['team', 'territories', 'analytics'].includes(t.to))),
+    [me, basePath]
+  );
+  const byKey = useMemo(() => Object.fromEntries(visible.map((t) => [t.to, t])), [visible]);
+  const primary = visible.filter((t) => PRIMARY_TAB_KEYS.has(t.to));
+  const groups = NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.keys.map((k) => byKey[k]).filter(Boolean).map((t) => ({ to: t.to, label: t.label })),
+  })).filter((g) => g.items.length > 0);
+
+  return (
+    <nav className="mb-2 flex flex-wrap items-center gap-1 rounded-xl border border-hairline bg-surface-soft/80 p-1.5">
+      {primary.map((t) => (
+        <SalesNavLink key={t.to || 'home'} to={t.to ? `${basePath}/${t.to}` : basePath} end={!t.to}>
+          {t.label}
+        </SalesNavLink>
+      ))}
+      {groups.length > 0 && <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden />}
+      {groups.map((g) => (
+        <SalesNavGroup key={g.id} label={g.label} items={g.items} basePath={basePath} />
+      ))}
+    </nav>
+  );
+}
+
+export function SalesCrmLayout({ basePath = '/sales-crm' }: { basePath?: string }) {
+  const q = useQuery({ queryKey: ['sales', '/me'], queryFn: () => api.data<Omit<SalesMe, 'basePath'>>('/sales-crm/me'), retry: false });
   if (q.isError) {
     return (
       <>
@@ -136,21 +274,16 @@ export function SalesCrmLayout() {
     );
   }
   if (q.isLoading || !q.data) return <PageLoading />;
-  const me = q.data;
+  const me = { ...q.data, basePath };
   return (
     <>
-      <PageHeader
-        title="Sales CRM"
-        description={`${me.name} · ${me.employee.employeeCode}${me.isSalesAdmin ? ' · Sales admin' : ''}`}
-      />
-      <nav className="-mx-1 flex gap-1 overflow-x-auto border-b pb-px">
-        {TABS.filter((t) => t.show(me)).map((t) => (
-          <NavLink key={t.to} to={t.to ? `/sales-crm/${t.to}` : '/sales-crm'} end={!t.to}
-            className={({ isActive }) => cn('whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors', isActive ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
-            {t.label}
-          </NavLink>
-        ))}
-      </nav>
+      {basePath !== '/bda' && (
+        <PageHeader
+          title="Sales CRM"
+          description={`${me.name} · ${me.employee.employeeCode}${me.isSalesAdmin ? ' · Sales admin' : ''}`}
+        />
+      )}
+      {basePath !== '/bda' && <SalesCrmNav me={me} basePath={basePath} />}
       <div className="flex flex-col gap-6">
         <Outlet context={me} />
       </div>
@@ -160,6 +293,7 @@ export function SalesCrmLayout() {
 
 // ---------------------------------------------------------------- dashboard
 export function SalesDashboardPage() {
+  const basePath = useMe().basePath;
   const q = useSales<Any>('/dashboard');
   return (
     <Query q={q}>
@@ -171,6 +305,7 @@ export function SalesDashboardPage() {
             <StatCard label="Converted" value={d.stats.converted} hint={`${d.conversionRate}% conversion`} tone="success" />
             <StatCard label="Pending approvals" value={d.stats.pendingApprovals} hint={`${d.stats.overdueTasks} overdue tasks`} />
           </PageGrid>
+          <CallAnalytics data={d.callAnalytics} />
           <PageGrid cols="2">
             <SectionCard title="Lead status">
               <div className="flex flex-col gap-3">
@@ -200,6 +335,7 @@ export function SalesDashboardPage() {
             <StatCard label="Pipeline" value={inr(d.stats.pipelineValue)} />
             <StatCard label="Revenue won" value={inr(d.stats.revenue)} tone="success" />
           </PageGrid>
+          <CallAnalytics data={d.callAnalytics} />
           <PageGrid cols="2">
             <SectionCard title={`Follow-ups due (${d.stats.followUpsDue})`}>
               <SimpleList rows={d.followUps} empty="Nothing due today." render={(f) => <><span>{f.notes || humanize(f.type)}</span><span className="text-xs text-muted-foreground">{fmtDateTime(f.dueAt)}</span></>} />
@@ -211,7 +347,7 @@ export function SalesDashboardPage() {
               <SimpleList rows={d.tasks} empty="No open tasks." render={(t) => <><span>{t.title}</span><span className="text-xs text-muted-foreground">{fmtDate(t.dueDate)}</span></>} />
             </SectionCard>
             <SectionCard title="Recent leads">
-              <SimpleList rows={d.recentLeads} empty="No leads yet." render={(l) => <><Link className="hover:underline" to={`/sales-crm/leads/${l._id}`}>{leadLabel(l)}</Link><StatusPill value={l.status} /></>} />
+              <SimpleList rows={d.recentLeads} empty="No leads yet." render={(l) => <><Link className="hover:underline" to={`${basePath}/leads/${l._id}`}>{leadLabel(l)}</Link><StatusPill value={l.status} /></>} />
             </SectionCard>
           </PageGrid>
         </>
@@ -242,6 +378,7 @@ const LEAD_FIELDS: FieldDef[] = [
 
 export function SalesLeadsPage() {
   const me = useMe();
+  const basePath = me.basePath;
   const navigate = useNavigate();
   const [filter, setFilter] = useState({ status: 'all', temperature: '', search: '', unassigned: false });
   const qs = new URLSearchParams({ status: filter.status, ...(filter.temperature && { temperature: filter.temperature }), ...(filter.search && { search: filter.search }), ...(filter.unassigned && { unassigned: 'true' }) }).toString();
@@ -259,7 +396,7 @@ export function SalesLeadsPage() {
       </div>
       <Query q={q}>
         {(rows) => (
-          <DataTable rows={rows} onRowClick={(r) => navigate(`/sales-crm/leads/${r._id}`)} empty="No leads match."
+          <DataTable rows={rows} onRowClick={(r) => navigate(`${basePath}/leads/${r._id}`)} empty="No leads match."
             columns={[
               { key: 'contactPerson', header: 'Lead', render: (r) => <div><p className="font-medium">{r.contactPerson}</p><p className="text-xs text-muted-foreground">{r.company || r.phone || '—'}</p></div> },
               { key: 'source', header: 'Source', render: (r) => humanize(r.source) },
@@ -278,6 +415,7 @@ export function SalesLeadsPage() {
 export function SalesLeadDetailPage() {
   const { id } = useParams();
   const me = useMe();
+  const basePath = me.basePath;
   const navigate = useNavigate();
   const q = useSales<Any>(`/leads/${id}`);
   const team = useSales<Any[]>('/employees', me.isSalesAdmin);
@@ -290,14 +428,15 @@ export function SalesLeadDetailPage() {
   const call = useSalesAction((v: Any) => post('/calls', { ...v, leadId: id }), 'Call logged', close);
   const followup = useSalesAction((v: Any) => post('/follow-ups', { ...v, leadId: id }), 'Follow-up scheduled', close);
   const meeting = useSalesAction((v: Any) => post('/meetings', { ...v, leadId: id }), 'Meeting scheduled', close);
-  const deal = useSalesAction((v: Any) => post('/deals', { ...v, leadId: id }), 'Deal created', (r) => navigate(`/sales-crm/deals/${r._id}`));
-  const archive = useSalesAction(() => api.data(`/sales-crm/leads/${id}`, 'DELETE'), 'Lead archived', () => navigate('/sales-crm/leads'));
+  const deal = useSalesAction((v: Any) => post('/deals', { ...v, leadId: id }), 'Deal created', (r) => navigate(`${basePath}/deals/${r._id}`));
+  const archive = useSalesAction(() => api.data(`/sales-crm/leads/${id}`, 'DELETE'), 'Lead archived', () => navigate(`${basePath}/leads`));
   return (
     <Query q={q}>
-      {({ lead, calls, meetings, followUps, deals, activity }) => (
+      {({ lead, calls, meetings, followUps, deals, activity, messages = [] }) => (
+        <LeadCallProvider leadId={lead._id} phone={lead.phone} contactName={lead.contactPerson} company={lead.company} enabled={Boolean(me.modules['comm.calls'])} basePath={basePath}>
         <>
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="ghost" size="sm" asChild><Link to="/sales-crm/leads"><ArrowLeft className="mr-1 h-4 w-4" />Leads</Link></Button>
+            <Button variant="ghost" size="sm" asChild><Link to={`${basePath}/leads`}><ArrowLeft className="mr-1 h-4 w-4" />Leads</Link></Button>
             <h2 className="text-lg font-semibold">{lead.contactPerson}</h2>
             <StatusPill value={lead.temperature} />
             <div className="ml-auto flex flex-wrap gap-2">
@@ -316,13 +455,15 @@ export function SalesLeadDetailPage() {
             {me.modules['comm.calls'] && <Button size="sm" variant="outline" onClick={() => setModal('call')}><Phone className="mr-1.5 h-3.5 w-3.5" />Log call</Button>}
             {me.modules['comm.followups'] && <Button size="sm" variant="outline" onClick={() => setModal('followup')}>Schedule follow-up</Button>}
             {me.modules['comm.meetings'] && <Button size="sm" variant="outline" onClick={() => setModal('meeting')}>Schedule meeting</Button>}
+            {me.modules['comm.email_whatsapp'] && <Button size="sm" variant="outline" asChild><Link to={`${basePath}/messages`}>Email / WhatsApp</Link></Button>}
             {me.modules['leads.qualification'] && <Button size="sm" variant="outline" onClick={() => setModal('qual')}>Qualification</Button>}
             {me.modules['sales.deals'] && <Button size="sm" onClick={() => setModal('deal')}>Create deal</Button>}
           </div>
           <PageGrid cols="2">
             <SectionCard title="Details">
+              <LeadPhoneRow phone={lead.phone} enabled={Boolean(me.modules['comm.calls'])} />
               <KeyValue items={[
-                ['Company', lead.company || '—'], ['Phone', lead.phone || '—'], ['Email', lead.email || '—'], ['City', lead.city || '—'],
+                ['Company', lead.company || '—'], ['Email', lead.email || '—'], ['City', lead.city || '—'],
                 ['Source', humanize(lead.source)], ['Industry', lead.industry || '—'], ['Priority', humanize(lead.priority)],
                 ['Last contacted', fmtDateTime(lead.lastContactedAt)], ['Next follow-up', fmtDateTime(lead.nextFollowUpAt)],
                 ['Requirement', lead.requirement || '—'],
@@ -336,10 +477,10 @@ export function SalesLeadDetailPage() {
               ]} />
             </SectionCard>
             <SectionCard title={`Deals (${deals.length})`}>
-              <SimpleList rows={deals} empty="No deals yet." render={(d) => <><Link className="hover:underline" to={`/sales-crm/deals/${d._id}`}>{d.dealName}</Link><span className="flex items-center gap-2">{inr(d.value)}<StatusPill value={d.stage} /></span></>} />
+              <SimpleList rows={deals} empty="No deals yet." render={(d) => <><Link className="hover:underline" to={`${basePath}/deals/${d._id}`}>{d.dealName}</Link><span className="flex items-center gap-2">{inr(d.value)}<StatusPill value={d.stage} /></span></>} />
             </SectionCard>
-            <SectionCard title={`Calls (${calls.length})`}>
-              <SimpleList rows={calls} empty="No calls logged." render={(c) => <><span>{humanize(c.outcome)}{c.notes && <span className="text-muted-foreground"> — {c.notes}</span>}</span><span className="text-xs text-muted-foreground">{fmtDateTime(c.calledAt || c.createdAt)}</span></>} />
+            <SectionCard title="Call History">
+              <CallHistory calls={calls} />
             </SectionCard>
             <SectionCard title={`Follow-ups (${followUps.length})`}>
               <SimpleList rows={followUps} empty="None scheduled." render={(f) => <><span>{f.notes || humanize(f.type)}</span><span className="flex items-center gap-2 text-xs text-muted-foreground">{fmtDateTime(f.dueAt)}<StatusPill value={f.status} /></span></>} />
@@ -347,8 +488,11 @@ export function SalesLeadDetailPage() {
             <SectionCard title={`Meetings (${meetings.length})`}>
               <SimpleList rows={meetings} empty="No meetings." render={(m) => <><span>{m.title}</span><span className="flex items-center gap-2 text-xs text-muted-foreground">{fmtDateTime(m.startsAt)}<StatusPill value={m.status} /></span></>} />
             </SectionCard>
+            <SectionCard title={`Email / WhatsApp (${messages.length})`}>
+              <SimpleList rows={messages} empty="No messages logged." render={(m) => <><span><StatusPill value={m.channel} /> {m.subject || m.body?.slice(0, 80)}</span><span className="text-xs text-muted-foreground">{fmtDateTime(m.sentAt)}</span></>} />
+            </SectionCard>
           </PageGrid>
-          <SectionCard title="Activity"><SalesActivityList rows={activity} /></SectionCard>
+          <SectionCard title="Activity timeline"><SalesActivityList rows={activity} /></SectionCard>
 
           <FormModal open={modal === 'edit'} onClose={close} title="Edit lead" fields={LEAD_FIELDS} initial={lead} onSubmit={(v) => { const { _id, organizationId, createdAt, updatedAt, __v, status: _s, assignedEmployeeId, recordStatus, createdBy, updatedBy, ...rest } = v; void _id; void organizationId; void createdAt; void updatedAt; void __v; void _s; void assignedEmployeeId; void recordStatus; void createdBy; void updatedBy; edit.mutate(Object.fromEntries(LEAD_FIELDS.map((f) => [f.name, rest[f.name]]).filter(([, x]) => x !== undefined))); }} pending={edit.isPending} />
           <FormModal open={modal === 'qual'} onClose={close} title="Qualification" initial={lead} pending={qual.isPending} onSubmit={(v) => qual.mutate(v)} fields={[
@@ -356,7 +500,7 @@ export function SalesLeadDetailPage() {
             { name: 'businessNeed', label: 'Business need', type: 'textarea' }, { name: 'probability', label: 'Probability (%)', type: 'number' },
             { name: 'nextAction', label: 'Next action' }, { name: 'qualificationNotes', label: 'Notes', type: 'textarea' },
           ]} />
-          <FormModal open={modal === 'call'} onClose={close} title="Log call" initial={{ outcome: 'connected' }} pending={call.isPending} onSubmit={(v) => call.mutate(v)} fields={[
+          <FormModal open={modal === 'call'} onClose={close} title="Log call" initial={{ outcome: 'interested' }} pending={call.isPending} onSubmit={(v) => call.mutate(v)} fields={[
             { name: 'outcome', label: 'Outcome', type: 'select', options: CALL_OUTCOMES, required: true }, { name: 'durationMinutes', label: 'Duration (min)', type: 'number' },
             { name: 'notes', label: 'Notes', type: 'textarea' }, { name: 'nextAction', label: 'Next action' },
             { name: 'nextFollowUpAt', label: 'Next follow-up', type: 'datetime', help: 'Creates a follow-up automatically.' },
@@ -365,8 +509,26 @@ export function SalesLeadDetailPage() {
           <FormModal open={modal === 'meeting'} onClose={close} title="Schedule meeting" initial={{ type: 'discovery' }} pending={meeting.isPending} onSubmit={(v) => meeting.mutate(v)} fields={MEETING_FIELDS} />
           <FormModal open={modal === 'deal'} onClose={close} title="Create deal" initial={{ dealName: lead.company || lead.contactPerson, probability: 10, priority: 'medium' }} pending={deal.isPending} onSubmit={(v) => deal.mutate(v)} fields={DEAL_FIELDS} />
         </>
+        </LeadCallProvider>
       )}
     </Query>
+  );
+}
+
+function LeadPhoneRow({ phone, enabled }: { phone?: string; enabled: boolean }) {
+  const call = useLeadCall();
+  return (
+    <div className="mb-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">Phone</p>
+          <p className="text-sm font-medium">{phone || '—'}</p>
+        </div>
+        {enabled && phone && <Button size="sm" disabled={call.busy} onClick={call.start}>📞 Call</Button>}
+        {call.status}
+      </div>
+      {call.panel}
+    </div>
   );
 }
 
@@ -407,9 +569,21 @@ const DEAL_FIELDS: FieldDef[] = [
   { name: 'notes', label: 'Notes', type: 'textarea' },
 ];
 
+const DEAL_STAGE_ACCENT: Record<string, string> = {
+  new: 'bg-slate-400',
+  contacted: 'bg-sky-500',
+  qualified: 'bg-blue-500',
+  meeting: 'bg-teal-500',
+  proposal: 'bg-indigo-500',
+  negotiation: 'bg-amber-500',
+  won: 'bg-emerald-500',
+  lost: 'bg-rose-500',
+};
+
 // ---------------------------------------------------------------- deals
 export function SalesDealsPage() {
   const me = useMe();
+  const basePath = me.basePath;
   const navigate = useNavigate();
   const [view, setView] = useState<'board' | 'list'>('board');
   const q = useSales<Any[]>('/deals?stage=all');
@@ -419,51 +593,138 @@ export function SalesDealsPage() {
   const move = useSalesAction((v: { id: string; stage: string }) => post(`/deals/${v.id}/stage`, { stage: v.stage }), 'Deal moved');
   return (
     <>
-      <div className="flex items-center gap-2">
-        <div className="inline-flex rounded-md border p-0.5">
-          {(['board', 'list'] as const).map((v) => <button key={v} onClick={() => setView(v)} className={cn('rounded px-3 py-1 text-sm', view === v ? 'bg-secondary font-medium' : 'text-muted-foreground')}>{humanize(v)}</button>)}
-        </div>
-        <Button className="ml-auto" onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New deal</Button>
-      </div>
+      <PageHeader
+        title="Deals"
+        description="Track every opportunity across your pipeline — from first contact to close."
+        action={
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            <div className="inline-flex rounded-lg border border-black/10 bg-white/80 p-1 shadow-sm backdrop-blur">
+              {([
+                { id: 'board' as const, icon: LayoutGrid, label: 'Board' },
+                { id: 'list' as const, icon: List, label: 'List' },
+              ]).map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setView(v.id)}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-all',
+                    view === v.id ? 'bg-foreground font-medium text-background shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <v.icon className="h-3.5 w-3.5" />
+                  {v.label}
+                </button>
+              ))}
+            </div>
+            <Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New deal</Button>
+          </div>
+        }
+      />
       <Query q={q}>
-        {(rows) => view === 'list' ? (
-          <DataTable rows={rows} onRowClick={(r) => navigate(`/sales-crm/deals/${r._id}`)} empty="No deals yet."
-            columns={[
-              { key: 'dealName', header: 'Deal', render: (r) => <div><p className="font-medium">{r.dealName}</p><p className="text-xs text-muted-foreground">{leadLabel(r.leadId)}</p></div> },
-              { key: 'value', header: 'Value', render: (r) => inr(r.value) },
-              { key: 'probability', header: 'Prob.', render: (r) => `${r.probability || 0}%` },
-              { key: 'stage', header: 'Stage', render: (r) => <StatusPill value={r.stage} /> },
-              { key: 'expectedCloseDate', header: 'Close by', render: (r) => fmtDate(r.expectedCloseDate) },
-            ]} />
-        ) : (
-          <div className="flex gap-3 overflow-x-auto pb-2">
-            {DEAL_STAGES.map((stage) => {
-              const col = rows.filter((d) => d.stage === stage);
-              return (
-                <div key={stage} className="w-64 shrink-0 rounded-lg bg-surface-soft p-2">
-                  <div className="mb-2 flex items-center justify-between px-1">
-                    <StatusPill value={stage} />
-                    <span className="text-xs text-muted-foreground">{col.length} · {inr(col.reduce((t, d) => t + (d.value || 0), 0))}</span>
+        {(rows) => {
+          const pipelineValue = rows.reduce((t, d) => t + (Number(d.value) || 0), 0);
+          const openCount = rows.filter((d) => !['won', 'lost'].includes(d.stage)).length;
+          return view === 'list' ? (
+            <DataTable rows={rows} onRowClick={(r) => navigate(`${basePath}/deals/${r._id}`)} empty="No deals yet — create your first opportunity."
+              columns={[
+                { key: 'dealName', header: 'Deal', render: (r) => <div><p className="font-medium">{r.dealName}</p><p className="text-xs text-muted-foreground">{leadLabel(r.leadId)}</p></div> },
+                { key: 'value', header: 'Value', render: (r) => inr(r.value) },
+                { key: 'probability', header: 'Prob.', render: (r) => `${r.probability || 0}%` },
+                { key: 'stage', header: 'Stage', render: (r) => <StatusPill value={r.stage} /> },
+                { key: 'expectedCloseDate', header: 'Close by', render: (r) => fmtDate(r.expectedCloseDate) },
+              ]} />
+          ) : (
+            <div className="flex flex-col gap-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-black/[0.06] bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Open deals</p>
+                  <p className="mt-1 font-display text-2xl font-semibold tabular-nums tracking-tight">{openCount}</p>
+                </div>
+                <div className="rounded-xl border border-black/[0.06] bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Pipeline value</p>
+                  <p className="mt-1 font-display text-2xl font-semibold tabular-nums tracking-tight">{inr(pipelineValue)}</p>
+                </div>
+                <div className="rounded-xl border border-black/[0.06] bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Total in board</p>
+                  <p className="mt-1 font-display text-2xl font-semibold tabular-nums tracking-tight">{rows.length}</p>
+                </div>
+              </div>
+
+              {!rows.length && (
+                <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-black/10 bg-white/60 px-5 py-6 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-display text-base font-semibold tracking-tight">Your pipeline is ready</p>
+                    <p className="mt-1 max-w-xl text-sm text-muted-foreground">Create a deal from a lead to start moving opportunities across stages.</p>
                   </div>
-                  <div className="flex flex-col gap-2">
-                    {col.map((d) => (
-                      <div key={d._id} className="rounded-md border bg-card p-3 shadow-card">
-                        <Link to={`/sales-crm/deals/${d._id}`} className="block text-sm font-medium hover:underline">{d.dealName}</Link>
-                        <p className="text-xs text-muted-foreground">{leadLabel(d.leadId)}</p>
-                        <p className="mt-1 text-sm">{inr(d.value)} <span className="text-xs text-muted-foreground">· {d.probability || 0}%</span></p>
-                        {me.modules['sales.pipeline'] && (
-                          <Select className="mt-2 h-8 text-xs" value={d.stage} onChange={(e) => move.mutate({ id: d._id, stage: e.target.value })}>
-                            {DEAL_STAGES.map((s) => <option key={s} value={s}>{humanize(s)}</option>)}
-                          </Select>
+                  <Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Create first deal</Button>
+                </div>
+              )}
+
+              <div className="bda-deal-board -mx-1 flex gap-3 overflow-x-auto px-1 pb-3 pt-1">
+                {DEAL_STAGES.map((stage) => {
+                  const col = rows.filter((d) => d.stage === stage);
+                  const total = col.reduce((t, d) => t + (Number(d.value) || 0), 0);
+                  return (
+                    <div
+                      key={stage}
+                      className="flex w-[280px] shrink-0 flex-col rounded-xl border border-black/[0.06] bg-white/70 shadow-sm backdrop-blur"
+                    >
+                      <div className="flex items-start justify-between gap-2 border-b border-black/[0.05] px-3 py-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={cn('h-2 w-2 shrink-0 rounded-sm', DEAL_STAGE_ACCENT[stage] || 'bg-slate-400')} />
+                            <p className="truncate text-sm font-semibold tracking-tight">{humanize(stage)}</p>
+                          </div>
+                          <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+                            {col.length} {col.length === 1 ? 'deal' : 'deals'} · {inr(total)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex min-h-[220px] flex-col gap-2.5 p-2.5">
+                        {col.length === 0 ? (
+                          <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-black/[0.07] bg-black/[0.015] px-3 py-8 text-center">
+                            <p className="text-xs text-muted-foreground">No deals in this stage</p>
+                          </div>
+                        ) : (
+                          col.map((d) => (
+                            <div
+                              key={d._id}
+                              className="group rounded-lg border border-black/[0.06] bg-white p-3.5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-black/10 hover:shadow-md"
+                            >
+                              <Link to={`${basePath}/deals/${d._id}`} className="block text-sm font-semibold tracking-tight text-foreground group-hover:underline">
+                                {d.dealName}
+                              </Link>
+                              <p className="mt-1 truncate text-xs text-muted-foreground">{leadLabel(d.leadId)}</p>
+                              <div className="mt-3 flex items-end justify-between gap-2">
+                                <div>
+                                  <p className="font-display text-sm font-semibold tabular-nums">{inr(d.value)}</p>
+                                  <p className="text-[11px] text-muted-foreground">{d.probability || 0}% probability</p>
+                                </div>
+                                {d.expectedCloseDate && (
+                                  <p className="text-[11px] text-muted-foreground">Close {fmtDate(d.expectedCloseDate)}</p>
+                                )}
+                              </div>
+                              {me.modules['sales.pipeline'] && (
+                                <Select
+                                  className="mt-3 h-8 border-black/10 bg-surface-soft/80 text-xs"
+                                  value={d.stage}
+                                  onChange={(e) => move.mutate({ id: d._id, stage: e.target.value })}
+                                >
+                                  {DEAL_STAGES.map((s) => <option key={s} value={s}>{humanize(s)}</option>)}
+                                </Select>
+                              )}
+                            </div>
+                          ))
                         )}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        }}
       </Query>
       <FormModal open={open} onClose={() => setOpen(false)} title="New deal" initial={{ probability: 10, priority: 'medium' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)}
         fields={[{ name: 'leadId', label: 'Lead', type: 'select', options: leads }, ...DEAL_FIELDS]} />
@@ -474,6 +735,7 @@ export function SalesDealsPage() {
 export function SalesDealDetailPage() {
   const { id } = useParams();
   const me = useMe();
+  const basePath = me.basePath;
   const navigate = useNavigate();
   const q = useSales<Any>(`/deals/${id}`);
   const [modal, setModal] = useState<'' | 'edit' | 'neg' | 'close' | 'approval' | 'quote' | 'proposal'>('');
@@ -484,13 +746,13 @@ export function SalesDealDetailPage() {
   const closeDeal = useSalesAction((v: Any) => post(`/deals/${id}/close`, v), 'Deal closed', close);
   const approval = useSalesAction((v: Any) => post('/approvals', { ...v, dealId: id }), 'Approval requested', close);
   const proposal = useSalesAction((v: Any) => post('/proposals', { ...v, dealId: id }), 'Proposal created', close);
-  const archive = useSalesAction(() => api.data(`/sales-crm/deals/${id}`, 'DELETE'), 'Deal archived', () => navigate('/sales-crm/deals'));
+  const archive = useSalesAction(() => api.data(`/sales-crm/deals/${id}`, 'DELETE'), 'Deal archived', () => navigate(`${basePath}/deals`));
   return (
     <Query q={q}>
       {({ deal, lead, quotations, proposals, approvals, activity }) => (
         <>
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="ghost" size="sm" asChild><Link to="/sales-crm/deals"><ArrowLeft className="mr-1 h-4 w-4" />Deals</Link></Button>
+            <Button variant="ghost" size="sm" asChild><Link to={`${basePath}/deals`}><ArrowLeft className="mr-1 h-4 w-4" />Deals</Link></Button>
             <h2 className="text-lg font-semibold">{deal.dealName}</h2>
             <StatusPill value={deal.stage} />
             <div className="ml-auto flex flex-wrap gap-2">
@@ -503,6 +765,7 @@ export function SalesDealDetailPage() {
             {me.modules['sales.negotiation'] && <Button size="sm" variant="outline" onClick={() => setModal('neg')}>Negotiation</Button>}
             {me.modules['docs.quotations'] && <Button size="sm" variant="outline" onClick={() => setModal('quote')}>New quotation</Button>}
             {me.modules['docs.proposals'] && <Button size="sm" variant="outline" onClick={() => setModal('proposal')}>New proposal</Button>}
+            {me.modules['docs.sales_documents'] && <Button size="sm" variant="outline" asChild><Link to={`/sow-templates?dealId=${id}&client=${encodeURIComponent(lead?.company || '')}&project=${encodeURIComponent(deal.dealName || '')}`}>Create SOW</Link></Button>}
             {me.modules['admin.approvals'] && <Button size="sm" variant="outline" onClick={() => setModal('approval')}>Request approval</Button>}
             {me.modules['sales.closure'] && !['won', 'lost'].includes(deal.stage) && <Button size="sm" onClick={() => setModal('close')}>Close deal</Button>}
           </div>
@@ -510,7 +773,7 @@ export function SalesDealDetailPage() {
             <SectionCard title="Deal">
               <KeyValue items={[
                 ['Value', inr(deal.value)], ['Probability', `${deal.probability || 0}%`], ['Expected close', fmtDate(deal.expectedCloseDate)],
-                ['Priority', humanize(deal.priority)], ['Lead', lead ? <Link className="hover:underline" to={`/sales-crm/leads/${lead._id}`}>{leadLabel(lead)}</Link> : '—'],
+                ['Priority', humanize(deal.priority)], ['Lead', lead ? <Link className="hover:underline" to={`${basePath}/leads/${lead._id}`}>{leadLabel(lead)}</Link> : '—'],
                 ...(deal.closedAt ? [['Closed', fmtDate(deal.closedAt)], ['Final offer', inr(deal.finalOffer)]] as [string, React.ReactNode][] : []),
                 ...(deal.stage === 'lost' ? [['Lost reason', humanize(deal.lostReason)]] as [string, React.ReactNode][] : []),
                 ['Notes', deal.notes || '—'],
@@ -589,6 +852,7 @@ export function SalesCustomersPage() {
 }
 
 export function SalesCallsPage() {
+  const basePath = useMe().basePath;
   const q = useSales<Any[]>('/calls');
   const leads = useLeadOptions();
   const [open, setOpen] = useState(false);
@@ -600,15 +864,15 @@ export function SalesCallsPage() {
         {(rows) => (
           <DataTable rows={rows} empty="No calls logged."
             columns={[
-              { key: 'lead', header: 'Lead', render: (r) => r.leadId ? <Link className="hover:underline" to={`/sales-crm/leads/${r.leadId._id}`}>{leadLabel(r.leadId)}</Link> : '—' },
+              { key: 'lead', header: 'Lead', render: (r) => r.leadId ? <Link className="hover:underline" to={`${basePath}/leads/${r.leadId._id}`}>{leadLabel(r.leadId)}</Link> : '—' },
               { key: 'outcome', header: 'Outcome', render: (r) => <StatusPill value={r.outcome} /> },
-              { key: 'durationMinutes', header: 'Duration', render: (r) => (r.durationMinutes ? `${r.durationMinutes} min` : '—') },
+              { key: 'durationMinutes', header: 'Duration', render: (r) => formatStoredDuration(r) || '—' },
               { key: 'notes', header: 'Notes', render: (r) => <span className="line-clamp-1">{r.notes || '—'}</span> },
               { key: 'calledAt', header: 'When', render: (r) => fmtDateTime(r.calledAt || r.createdAt) },
             ]} />
         )}
       </Query>
-      <FormModal open={open} onClose={() => setOpen(false)} title="Log call" initial={{ outcome: 'connected' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)} fields={[
+      <FormModal open={open} onClose={() => setOpen(false)} title="Log call" initial={{ outcome: 'interested' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)} fields={[
         { name: 'leadId', label: 'Lead', type: 'select', options: leads }, { name: 'outcome', label: 'Outcome', type: 'select', options: CALL_OUTCOMES, required: true },
         { name: 'durationMinutes', label: 'Duration (min)', type: 'number' }, { name: 'notes', label: 'Notes', type: 'textarea' },
         { name: 'nextAction', label: 'Next action' }, { name: 'nextFollowUpAt', label: 'Next follow-up', type: 'datetime' },
@@ -650,6 +914,7 @@ export function SalesMeetingsPage() {
 }
 
 export function SalesFollowUpsPage() {
+  const basePath = useMe().basePath;
   const [status, setStatus] = useState('pending');
   const q = useSales<Any[]>(`/follow-ups?status=${status}`);
   const leads = useLeadOptions();
@@ -666,7 +931,7 @@ export function SalesFollowUpsPage() {
         {(rows) => (
           <DataTable rows={rows} empty="No follow-ups."
             columns={[
-              { key: 'lead', header: 'Lead', render: (r) => r.leadId ? <Link className="hover:underline" to={`/sales-crm/leads/${r.leadId._id}`}>{leadLabel(r.leadId)}</Link> : '—' },
+              { key: 'lead', header: 'Lead', render: (r) => r.leadId ? <Link className="hover:underline" to={`${basePath}/leads/${r.leadId._id}`}>{leadLabel(r.leadId)}</Link> : '—' },
               { key: 'type', header: 'Type', render: (r) => humanize(r.type) },
               { key: 'notes', header: 'Notes', render: (r) => r.notes || '—' },
               { key: 'dueAt', header: 'Due', render: (r) => <span className={cn(r.status === 'pending' && new Date(r.dueAt) < new Date() && 'font-medium text-error')}>{fmtDateTime(r.dueAt)}</span> },
@@ -798,12 +1063,14 @@ export function SalesTasksPage() {
   const status = useSalesAction((v: { id: string; status: string }) => post(`/tasks/${v.id}/status`, { status: v.status }), 'Task updated');
   return (
     <>
+      <PageHeader title="Tasks" description={me.isSalesAdmin ? 'Assign work to a sales person — it shows on their BDA My Day and Tasks.' : 'Tasks assigned to you, including work from the company admin.'} />
       <div className="flex justify-end"><Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New task</Button></div>
       <Query q={q}>
         {(rows) => (
-          <DataTable rows={rows} empty="No tasks."
+          <DataTable rows={rows} empty="No tasks assigned to you yet."
             columns={[
               { key: 'title', header: 'Task', render: (r) => <div><p className={cn('font-medium', r.status === 'completed' && 'text-muted-foreground line-through')}>{r.title}</p>{r.description && <p className="line-clamp-1 text-xs text-muted-foreground">{r.description}</p>}</div> },
+              ...(me.isSalesAdmin ? [{ key: 'assignedName', header: 'Assigned to', render: (r: Any) => r.assignedName || '—' }] : []),
               { key: 'priority', header: 'Priority', render: (r) => <StatusPill value={r.priority} /> },
               { key: 'dueDate', header: 'Due', render: (r) => fmtDate(r.dueDate) },
               { key: 'status', header: 'Status', render: (r) => (
@@ -818,7 +1085,7 @@ export function SalesTasksPage() {
       <FormModal open={open} onClose={() => setOpen(false)} title="New task" initial={{ priority: 'medium' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)} fields={[
         { name: 'title', label: 'Title', required: true }, { name: 'description', label: 'Description', type: 'textarea' },
         { name: 'priority', label: 'Priority', type: 'select', options: PRIORITIES }, { name: 'dueDate', label: 'Due date', type: 'date' },
-        ...(me.isSalesAdmin ? [{ name: 'employeeId', label: 'Assign to', type: 'select', options: (team.data || []).map((e) => ({ value: e._id, label: e.name })) } as FieldDef] : []),
+        ...(me.isSalesAdmin ? [{ name: 'employeeId', label: 'Assign to', type: 'select', required: true, options: (team.data || []).map((e) => ({ value: e._id, label: e.name })) } as FieldDef] : []),
       ]} />
     </>
   );
@@ -1161,6 +1428,7 @@ export function SalesAnalyticsPage() {
 // ---------------------------------------------------------------- team
 export function SalesTeamPage() {
   const navigate = useNavigate();
+  const basePath = useMe().basePath;
   const q = useSales<Any[]>('/employees');
   const [open, setOpen] = useState(false);
   const create = useSalesAction((v: Any) => post('/employees', v), 'Employee added', () => setOpen(false));
@@ -1169,11 +1437,11 @@ export function SalesTeamPage() {
       <div className="flex justify-end"><Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Add employee</Button></div>
       <Query q={q}>
         {(rows) => (
-          <DataTable rows={rows} empty="No employees yet." onRowClick={(r) => navigate(`/sales-crm/team/${r._id}`)}
+          <DataTable rows={rows} empty="No employees yet." onRowClick={(r) => navigate(`${basePath}/team/${r._id}`)}
             columns={[
               { key: 'name', header: 'Employee', render: (r) => <div className="flex items-center gap-2"><span className={cn('h-2 w-2 rounded-full', r.live ? 'bg-green-500' : 'bg-muted-foreground/30')} title={r.live ? 'Online' : 'Offline'} /><div><p className="font-medium">{r.name}</p><p className="text-xs text-muted-foreground">{r.email}</p></div></div> },
               { key: 'employeeCode', header: 'Code', render: (r) => <span className="font-mono text-xs">{r.employeeCode}</span> },
-              { key: 'role', header: 'Role', render: (r) => (r.isSalesAdmin ? <StatusPill value="Sales admin" tone="purple" /> : 'Employee') },
+              { key: 'role', header: 'Role', render: (r) => (r.isSalesAdmin ? <StatusPill value="Sales admin" tone="purple" /> : <StatusPill value="BDA" />) },
               { key: 'team', header: 'Team / territory', render: (r) => [r.department, r.team, r.territory].filter(Boolean).join(' · ') || '—' },
               { key: 'openLeads', header: 'Open leads', render: (r) => r.openLeads },
               { key: 'revenue', header: 'Revenue', render: (r) => inr(r.revenue) },
@@ -1181,11 +1449,11 @@ export function SalesTeamPage() {
             ]} />
         )}
       </Query>
-      <FormModal open={open} onClose={() => setOpen(false)} title="Add employee" initial={{ department: 'Sales' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)} fields={[
+      <FormModal open={open} onClose={() => setOpen(false)} title="Add BDA / sales employee" initial={{ department: 'Sales' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)} fields={[
         { name: 'name', label: 'Full name', required: true }, { name: 'email', label: 'Email', type: 'email', required: true },
-        { name: 'password', label: 'Password', type: 'password', help: 'Required for a new login (min 8 characters). Leave blank if this person already has an account.' },
+        { name: 'password', label: 'Password', type: 'password', help: 'Required for a new login (min 8 characters). New sales employees open the BDA portal at /bda after login.' },
         { name: 'phone', label: 'Phone' }, { name: 'department', label: 'Department' }, { name: 'team', label: 'Team' }, { name: 'territory', label: 'Territory' },
-        { name: 'isSalesAdmin', label: 'Sales admin (full access)', type: 'checkbox' },
+        { name: 'isSalesAdmin', label: 'Sales admin (full ERP Sales CRM — not BDA-only)', type: 'checkbox' },
       ]} />
     </>
   );
@@ -1194,13 +1462,14 @@ export function SalesTeamPage() {
 export function SalesEmployeeDetailPage() {
   const { id } = useParams();
   const me = useMe();
+  const basePath = me.basePath;
   const navigate = useNavigate();
   const q = useSales<Any>(`/employees/${id}`);
   const [modules, setModules] = useState<Record<string, boolean> | null>(null);
   const [edit, setEdit] = useState(false);
   const save = useSalesAction(() => api.data(`/sales-crm/employees/${id}/permissions`, 'PUT', { modules }), 'Access updated', () => setModules(null));
   const update = useSalesAction((v: Any) => api.data(`/sales-crm/employees/${id}`, 'PATCH', v), 'Employee updated', () => setEdit(false));
-  const remove = useSalesAction(() => api.data(`/sales-crm/employees/${id}`, 'DELETE'), 'Employee removed', () => navigate('/sales-crm/team'));
+  const remove = useSalesAction(() => api.data(`/sales-crm/employees/${id}`, 'DELETE'), 'Employee removed', () => navigate(`${basePath}/team`));
   return (
     <Query q={q}>
       {({ employee, modules: current, stats, activity }) => {
@@ -1208,7 +1477,7 @@ export function SalesEmployeeDetailPage() {
         return (
           <>
             <div className="flex flex-wrap items-center gap-3">
-              <Button variant="ghost" size="sm" asChild><Link to="/sales-crm/team"><ArrowLeft className="mr-1 h-4 w-4" />Team</Link></Button>
+              <Button variant="ghost" size="sm" asChild><Link to={`${basePath}/team`}><ArrowLeft className="mr-1 h-4 w-4" />Team</Link></Button>
               <h2 className="text-lg font-semibold">{employee.name}</h2>
               <span className="font-mono text-xs text-muted-foreground">{employee.employeeCode}</span>
               <StatusPill value={employee.status} />
@@ -1255,5 +1524,129 @@ export function SalesEmployeeDetailPage() {
         );
       }}
     </Query>
+  );
+}
+
+// ---------------------------------------------------------------- BDA My Day + Email/WhatsApp
+export function SalesMyDayPage() {
+  const basePath = useMe().basePath;
+  const q = useSales<Any>('/my-day');
+  const [escalateOpen, setEscalateOpen] = useState(false);
+  const escalate = useSalesAction(
+    (v: Any) => post('/escalate', v),
+    'Escalation sent to your managers',
+    () => setEscalateOpen(false)
+  );
+  return (
+    <Query q={q}>
+      {(d) => (
+        <>
+          <PageHeader
+            title="My Day"
+            description={`Focus queue for ${d.date}`}
+            action={
+              <Button variant="outline" onClick={() => setEscalateOpen(true)}>Ask manager for help</Button>
+            }
+          />
+          <PageGrid cols="4">
+            <StatCard label="Open leads" value={d.stats.openLeads} />
+            <StatCard label="Open tasks" value={d.stats.openTasks ?? d.openTasks?.length ?? 0} />
+            <StatCard label="Overdue follow-ups" value={d.stats.overdueFollowUps} tone={d.stats.overdueFollowUps ? 'danger' : 'default'} />
+            <StatCard label="Today's meetings" value={d.stats.todayMeetings} />
+          </PageGrid>
+          <CallAnalytics data={d.callAnalytics} />
+          <PageGrid cols="2">
+            <SectionCard title="My open tasks" action={<Link className="text-xs hover:underline" to={`${basePath}/tasks`}>View all</Link>}>
+              <SimpleList rows={d.openTasks || d.todayTasks || []} empty="No open tasks assigned to you." render={(t) => (
+                <><span className="text-sm">{t.title}{t.dueDate ? <span className="text-muted-foreground"> · due {fmtDate(t.dueDate)}</span> : null}</span><StatusPill value={t.status} /></>
+              )} />
+            </SectionCard>
+            <SectionCard title="Overdue follow-ups" action={<Link className="text-xs hover:underline" to={`${basePath}/follow-ups`}>View all</Link>}>
+              <SimpleList rows={d.overdueFollowUps} empty="Nothing overdue." render={(f) => (
+                <><span className="text-sm">{f.notes || humanize(f.type)} · {fmtDateTime(f.dueAt)}</span><StatusPill value={f.status} /></>
+              )} />
+            </SectionCard>
+            <SectionCard title="Today's meetings" action={<Link className="text-xs hover:underline" to={`${basePath}/meetings`}>View all</Link>}>
+              <SimpleList rows={d.todayMeetings} empty="No meetings today." render={(m) => (
+                <><span className="text-sm">{m.title}<span className="text-muted-foreground"> · {fmtDateTime(m.startsAt)}</span></span><StatusPill value={m.status} /></>
+              )} />
+            </SectionCard>
+            <SectionCard title="Hot / warm leads" action={<Link className="text-xs hover:underline" to={`${basePath}/leads`}>Inbox</Link>}>
+              <SimpleList rows={d.hotLeads} empty="No hot leads." render={(l) => (
+                <><Link className="hover:underline" to={`${basePath}/leads/${l._id}`}>{leadLabel(l)}</Link><StatusPill value={l.temperature} /></>
+              )} />
+            </SectionCard>
+          </PageGrid>
+          {(d.overdueTasks?.length > 0) && (
+            <SectionCard title="Overdue tasks">
+              <SimpleList rows={d.overdueTasks} empty="None." render={(t) => (
+                <><span className="text-sm">{t.title}<span className="text-muted-foreground"> · due {fmtDate(t.dueDate)}</span></span><StatusPill value="overdue" /></>
+              )} />
+            </SectionCard>
+          )}
+          <FormModal
+            open={escalateOpen}
+            onClose={() => setEscalateOpen(false)}
+            title="Ask manager for help"
+            submitLabel="Send escalation"
+            pending={escalate.isPending}
+            onSubmit={(v) => escalate.mutate(v)}
+            fields={[
+              { name: 'subject', label: 'What do you need?', required: true, placeholder: 'e.g. Stuck on pricing for ACME' },
+              { name: 'detail', label: 'Details', type: 'textarea', placeholder: 'Context your manager should know' },
+            ]}
+          />
+        </>
+      )}
+    </Query>
+  );
+}
+
+export function SalesMessagesPage() {
+  const me = useMe();
+  const basePath = me.basePath;
+  const [channel, setChannel] = useState<'all' | 'email' | 'whatsapp'>('all');
+  const qs = channel === 'all' ? '' : `?channel=${channel}`;
+  const q = useSales<Any[]>(`/messages${qs}`, me.modules['comm.email_whatsapp']);
+  const leads = useLeadOptions();
+  const [open, setOpen] = useState(false);
+  const create = useSalesAction(async (v: Any) => {
+    const res = await post('/messages', v) as Any;
+    if (res?.deepLink) window.open(res.deepLink, '_blank', 'noopener,noreferrer');
+    return res;
+  }, 'Message logged', () => setOpen(false));
+  return (
+    <>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Select className="w-40" value={channel} onChange={(e) => setChannel(e.target.value as typeof channel)}>
+          <option value="all">All channels</option>
+          <option value="email">Email</option>
+          <option value="whatsapp">WhatsApp</option>
+        </Select>
+        <Button className="sm:ml-auto" onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Log / compose</Button>
+      </div>
+      <Query q={q}>
+        {(rows) => (
+          <DataTable rows={rows} empty="No messages logged yet."
+            columns={[
+              { key: 'channel', header: 'Channel', render: (r) => <StatusPill value={r.channel} /> },
+              { key: 'lead', header: 'Lead', render: (r) => r.leadId ? <Link className="hover:underline" to={`${basePath}/leads/${r.leadId._id || r.leadId}`}>{leadLabel(r.leadId)}</Link> : '—' },
+              { key: 'toAddress', header: 'To', render: (r) => r.toAddress || '—' },
+              { key: 'subject', header: 'Subject / preview', render: (r) => <div><p className="font-medium">{r.subject || humanize(r.channel)}</p><p className="line-clamp-1 text-xs text-muted-foreground">{r.body}</p></div> },
+              { key: 'sentAt', header: 'When', render: (r) => fmtDateTime(r.sentAt) },
+            ]} />
+        )}
+      </Query>
+      <FormModal open={open} onClose={() => setOpen(false)} title="Log email or WhatsApp" pending={create.isPending}
+        initial={{ channel: 'whatsapp', direction: 'outbound' }}
+        onSubmit={(v) => create.mutate(v)}
+        fields={[
+          { name: 'channel', label: 'Channel', type: 'select', options: ['email', 'whatsapp'], required: true },
+          { name: 'leadId', label: 'Lead', type: 'select', options: leads },
+          { name: 'toAddress', label: 'To (email or phone)' },
+          { name: 'subject', label: 'Subject (email)' },
+          { name: 'body', label: 'Message', type: 'textarea', required: true },
+        ]} />
+    </>
   );
 }
