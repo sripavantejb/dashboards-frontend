@@ -156,7 +156,7 @@ export default function OsDashboardPage() {
     mutationFn: ({ employeeId, stages }: { employeeId: string; stages: Record<string, number> }) =>
       api.data('/sales-crm/stage-targets', 'PUT', { employeeId, stages }),
     onSuccess: () => {
-      toast.success('Pipeline stage targets saved');
+      toast.success('Daily stage targets saved');
       void qc.invalidateQueries({ queryKey: ['sales-stage-targets'] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -519,8 +519,8 @@ export default function OsDashboardPage() {
 
       {(canManageBdaTargets || bdaRows.length > 0) && (
         <SectionCard
-          title="BDA pipeline stage targets"
-          action={<p className="max-w-sm text-right text-xs text-muted-foreground">This month · set how many leads each BDA should move through each stage. Actual = leads assigned to them created this month.</p>}
+          title="BDA daily stage targets"
+          action={<p className="max-w-sm text-right text-xs text-muted-foreground">Today · set how many leads each BDA should move through each stage per day. Actual = assigned leads they created or updated today.</p>}
           bodyClassName="p-0"
         >
           {stageTargets.isLoading ? (

@@ -75,6 +75,7 @@ const STATUS_TONE: Record<string, keyof typeof TONES> = {
   unqualified: 'orange', not_interested: 'rose', wrong_number: 'rose',
   inactive: 'gray', closed: 'gray', ended: 'gray', expense: 'red', archived: 'gray', urgent: 'red', high: 'amber',
   medium: 'blue', low: 'gray', hot: 'rose', warm: 'amber', cold: 'sky', due_soon: 'amber', due_today: 'amber',
+  not_needed: 'slate',
 };
 
 const STAGE_BORDER: Record<string, string> = {
@@ -99,6 +100,17 @@ const STAGE_BORDER: Record<string, string> = {
   no_answer: 'border-slate-200',
   busy: 'border-amber-200',
   wrong_number: 'border-rose-200',
+  not_yet_started: 'border-slate-200',
+  started: 'border-blue-200',
+  in_progress: 'border-blue-200',
+  blocked: 'border-rose-200',
+  recursive: 'border-violet-200',
+  completed: 'border-emerald-200',
+  not_needed: 'border-slate-200',
+  urgent: 'border-rose-200',
+  high: 'border-amber-200',
+  medium: 'border-blue-200',
+  low: 'border-slate-200',
 };
 
 export function stageSelectClass(value?: string | null) {

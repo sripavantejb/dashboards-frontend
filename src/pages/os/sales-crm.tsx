@@ -18,6 +18,7 @@ import { DataTable, KeyValue, ProgressBar, SectionCard, Select, StatCard, Status
 import { CALL_OUTCOMES, formatStoredDuration } from '@/lib/calling';
 import { CallAnalytics } from '@/components/sales/call-analytics';
 import { CheckoutModal } from '@/components/sales/checkout-modal';
+import { CallHistory, LeadCallProvider, useLeadCall } from '@/components/sales/lead-call';
 
 type Any = Record<string, any>;
 const onErr = (e: Error) => toast.error(e.message);

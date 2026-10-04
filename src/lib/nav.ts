@@ -16,6 +16,9 @@ export interface NavItem {
 export interface NavSection {
   title: string;
   items: NavItem[];
+  /** Collapse the section into a sidebar dropdown. */
+  collapsible?: boolean;
+  icon?: LucideIcon;
 }
 
 export const NAV_SECTIONS: NavSection[] = [
@@ -24,17 +27,6 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, permission: 'dashboard:read' },
       { name: 'Notifications', href: '/notifications', icon: Bell, permission: 'notifications:read' },
-    ],
-  },
-  {
-    title: 'Sales team (BDA)',
-    items: [
-      { name: 'BDA settings', href: '/bda-settings', icon: UserPlus, permission: 'users:write' },
-      { name: 'BDA logins', href: '/employees', icon: UserCog, permission: 'users:write' },
-      { name: 'BDA team & access', href: '/sales-crm/team', icon: Users, permission: 'sales_crm:write' },
-      { name: 'BDA activity', href: '/dashboard#sales-team-bda', icon: Activity, permission: 'sales_crm:read' },
-      { name: 'BDA attendance', href: '/sales-crm/attendance', icon: CalendarDays, permission: 'sales_crm:read' },
-      { name: 'Sales CRM', href: '/sales-crm', icon: Store, permission: 'sales_crm:read' },
     ],
   },
   {
@@ -59,6 +51,8 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Delivery',
+    collapsible: true,
+    icon: FolderKanban,
     items: [
       { name: 'Conversions', href: '/conversions', icon: Link2, permission: 'conversions:read' },
       { name: 'Projects', href: '/projects', icon: FolderKanban, permission: 'projects:read' },
@@ -94,6 +88,8 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Growth',
+    collapsible: true,
+    icon: Gift,
     items: [
       { name: 'Refer & Earn', href: '/growth/referrals', icon: Gift, permission: 'growth:read' },
       { name: 'Rewards', href: '/growth/rewards', icon: Wallet, permission: 'growth:read' },
@@ -106,11 +102,26 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Admin',
+    collapsible: true,
+    icon: Settings,
     items: [
       { name: 'Users & roles', href: '/employees', icon: UserCog, permission: 'users:write' },
       { name: 'Services', href: '/settings/services', icon: Layers, permission: 'settings:write' },
       { name: 'Industries', href: '/settings/industries', icon: Factory, permission: 'settings:write' },
       { name: 'Settings', href: '/settings', icon: Settings, permission: 'settings:read' },
+    ],
+  },
+  {
+    title: 'Sales team (BDA)',
+    collapsible: true,
+    icon: Store,
+    items: [
+      { name: 'BDA settings', href: '/bda-settings', icon: UserPlus, permission: 'users:write' },
+      { name: 'BDA logins', href: '/employees', icon: UserCog, permission: 'users:write' },
+      { name: 'BDA team & access', href: '/sales-crm/team', icon: Users, permission: 'sales_crm:write' },
+      { name: 'BDA activity', href: '/dashboard#sales-team-bda', icon: Activity, permission: 'sales_crm:read' },
+      { name: 'BDA attendance', href: '/sales-crm/attendance', icon: CalendarDays, permission: 'sales_crm:read' },
+      { name: 'Sales CRM', href: '/sales-crm', icon: Store, permission: 'sales_crm:read' },
     ],
   },
 ];

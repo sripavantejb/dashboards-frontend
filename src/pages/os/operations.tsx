@@ -13,7 +13,8 @@ import { Label } from '@/components/ui/label';
 import { SimpleModal } from '@/components/shared/simple-modal';
 import { PageError, PageLoading } from '@/components/shared/page-states';
 import { ResourcePage, type FieldDef } from '@/components/shared/resource-page';
-import { DataTable, KeyValue, SectionCard, Select, StatCard, StatusPill, Tabs, Textarea, fmtDate, fmtDateTime, humanize, inr, toDateInput } from '@/components/shared/os-ui';
+import { DataTable, KeyValue, SectionCard, Select, StatCard, StatusPill, Tabs, Textarea, fmtDate, fmtDateTime, humanize, inr, stageSelectClass, toDateInput } from '@/components/shared/os-ui';
+import { cn } from '@/lib/utils';
 import { ActivityList } from './delivery';
 
 type Any = Record<string, any>;
@@ -102,14 +103,14 @@ export function TrackerPage() {
           { key: 'dependency', header: 'Depends on', render: (r) => <span className="text-xs">{(r.dependency || []).map(nameOf).join(', ') || '—'}</span> },
           {
             key: 'status', header: 'Status', render: (r) => (
-              <Select className="h-8 w-40 text-xs" value={r.status} onChange={(e) => patch.mutate({ id: r._id, field: 'status', value: e.target.value })}>
+              <Select className={cn('h-8 w-40 text-xs', stageSelectClass(r.status))} value={r.status} onChange={(e) => patch.mutate({ id: r._id, field: 'status', value: e.target.value })}>
                 {TRACKER_STATUSES.map((s) => <option key={s} value={s}>{humanize(s)}</option>)}
               </Select>
             ),
           },
           {
             key: 'priority', header: 'Priority', render: (r) => (
-              <Select className="h-8 w-28 text-xs" value={r.priority} onChange={(e) => patch.mutate({ id: r._id, field: 'priority', value: e.target.value })}>
+              <Select className={cn('h-8 w-28 text-xs', stageSelectClass(r.priority))} value={r.priority} onChange={(e) => patch.mutate({ id: r._id, field: 'priority', value: e.target.value })}>
                 {TRACKER_PRIORITIES.map((s) => <option key={s} value={s}>{humanize(s)}</option>)}
               </Select>
             ),
@@ -144,7 +145,7 @@ export function TrackerPage() {
           {form.kind === 'deadline' && <FormField><Label>Deadline (IST)</Label><Input type="datetime-local" value={form.deadline || ''} onChange={(e) => setForm({ ...form, deadline: e.target.value })} /></FormField>}
           <FormRow>
             <FormField><Label>POC</Label><Select value={form.poc} onChange={(e) => setForm({ ...form, poc: e.target.value })}><option value="">—</option>{team.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</Select></FormField>
-            <FormField><Label>Priority</Label><Select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>{TRACKER_PRIORITIES.map((p) => <option key={p} value={p}>{humanize(p)}</option>)}</Select></FormField>
+            <FormField><Label>Priority</Label><Select className={stageSelectClass(form.priority)} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>{TRACKER_PRIORITIES.map((p) => <option key={p} value={p}>{humanize(p)}</option>)}</Select></FormField>
           </FormRow>
           <FormField><Label>Depends on</Label>
             <div className="flex flex-wrap gap-2">

@@ -1,10 +1,10 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useUIStore, useAuthStore } from '@/stores/auth';
 import { CompanyMark } from '@/components/company/company-mark';
 import { PLATFORM_ADMIN_PATH } from '@/lib/admin-routes';
-import { ChevronLeft, Shield } from 'lucide-react';
+import { ChevronDown, ChevronLeft, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Link, useLocation } from 'react-router';
@@ -16,6 +16,7 @@ export function Sidebar() {
   const { user, organization } = useAuthStore();
   const { sidebarCollapsed, setSidebarCollapsed, sidebarOpen, setSidebarOpen } = useUIStore();
   const reduceMotion = useReducedMotion();
+  const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
 
   const sections = useMemo(() => {
     const perms = user?.role === 'super_admin' ? ['*'] : user?.permissions;
@@ -27,8 +28,25 @@ export function Sidebar() {
     })).filter((s) => s.items.length > 0);
   }, [user]);
 
+  useEffect(() => {
+    setOpenMenus((prev) => {
+      const next = { ...prev };
+      for (const section of NAV_SECTIONS) {
+        if (!section.collapsible) continue;
+        if (section.items.some((i) => pathname === i.href || pathname.startsWith(`${i.href}/`))) {
+          next[section.title] = true;
+        }
+      }
+      return next;
+    });
+  }, [pathname]);
+
   const handleNavClick = () => {
     if (window.innerWidth < 768) setSidebarOpen(false);
+  };
+
+  const toggleMenu = (title: string) => {
+    setOpenMenus((prev) => ({ ...prev, [title]: !prev[title] }));
   };
 
   const allHrefs = useMemo(() => NAV_SECTIONS.flatMap((s) => s.items.map((i) => i.href)), []);
@@ -69,35 +87,68 @@ export function Sidebar() {
 
       <ScrollArea className="flex-1 py-3">
         <nav className="flex flex-col gap-4 px-2">
-          {sections.map((section) => (
-            <div key={section.title} className="flex flex-col gap-0.5">
-              {!sidebarCollapsed ? (
-                <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{section.title}</p>
-              ) : (
-                <div className="mx-3 mb-1 border-t" />
-              )}
-              {section.items.map((item) => {
-                const active = isActive(item.href);
-                return (
-                  <Link
-                    key={`${section.title}-${item.name}-${item.href}`}
-                    to={item.href}
-                    onClick={handleNavClick}
-                    className={cn(
-                      'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out',
-                      active
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:bg-surface-soft hover:text-foreground hover:translate-x-0.5'
+          {sections.map((section) => {
+            const collapsible = Boolean(section.collapsible) && !sidebarCollapsed;
+            const menuOpen = openMenus[section.title] ?? false;
+            const SectionIcon = section.icon;
+            const sectionActive = section.items.some((i) => isActive(i.href) || pathname === i.href || pathname.startsWith(`${i.href}/`));
+
+            const links = section.items.map((item) => {
+              const active = isActive(item.href);
+              return (
+                <Link
+                  key={`${section.title}-${item.name}-${item.href}`}
+                  to={item.href}
+                  onClick={handleNavClick}
+                  className={cn(
+                    'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out',
+                    collapsible && 'pl-9',
+                    active
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-surface-soft hover:text-foreground hover:translate-x-0.5'
+                  )}
+                  title={sidebarCollapsed ? item.name : undefined}
+                >
+                  <item.icon className="h-4 w-4 shrink-0" />
+                  {!sidebarCollapsed && <span className="truncate">{item.name}</span>}
+                </Link>
+              );
+            });
+
+            return (
+              <div key={section.title} className="flex flex-col gap-0.5">
+                {collapsible ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => toggleMenu(section.title)}
+                      className={cn(
+                        'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                        sectionActive && !menuOpen
+                          ? 'bg-surface-soft text-foreground'
+                          : 'text-muted-foreground hover:bg-surface-soft hover:text-foreground'
+                      )}
+                      aria-expanded={menuOpen}
+                    >
+                      {SectionIcon ? <SectionIcon className="h-4 w-4 shrink-0" /> : null}
+                      <span className="min-w-0 flex-1 truncate text-left">{section.title}</span>
+                      <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform duration-200', menuOpen && 'rotate-180')} />
+                    </button>
+                    {menuOpen && links}
+                  </>
+                ) : (
+                  <>
+                    {!sidebarCollapsed ? (
+                      <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{section.title}</p>
+                    ) : (
+                      <div className="mx-3 mb-1 border-t" />
                     )}
-                    title={sidebarCollapsed ? item.name : undefined}
-                  >
-                    <item.icon className="h-4 w-4 shrink-0" />
-                    {!sidebarCollapsed && <span className="truncate">{item.name}</span>}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+                    {links}
+                  </>
+                )}
+              </div>
+            );
+          })}
           {user?.role === 'super_admin' && (
             <Link
               to={PLATFORM_ADMIN_PATH}
