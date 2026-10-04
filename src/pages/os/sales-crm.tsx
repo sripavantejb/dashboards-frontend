@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, NavLink, Outlet, useLocation, useNavigate, useOutletContext, useParams } from 'react-router';
+import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router';
 import { ArrowLeft, Check, ChevronDown, Copy, LayoutGrid, List, LogIn, LogOut, Phone, Plus, Trash2, X } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -69,6 +70,47 @@ function useSalesAction<V = unknown>(fn: (v: V) => Promise<unknown>, success?: s
 }
 
 const post = (path: string, body: unknown = {}) => api.data(`/sales-crm${path}`, 'POST', body);
+
+const isBdaPortal = (basePath: string) => basePath.includes('/bda');
+
+function RightInspector({ open, onClose, children }: { open: boolean; onClose: () => void; children: React.ReactNode }) {
+  const reduceMotion = useReducedMotion();
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.button
+            type="button"
+            aria-label="Close details"
+            className="fixed inset-0 z-[55] bg-black/40 md:bg-black/10"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.2 }}
+            onClick={onClose}
+          />
+          <motion.aside
+            role="dialog"
+            aria-modal="true"
+            initial={reduceMotion ? false : { x: '100%' }}
+            animate={{ x: 0 }}
+            exit={reduceMotion ? undefined : { x: '100%' }}
+            transition={{ type: 'spring', damping: 32, stiffness: 320 }}
+            className="fixed inset-y-0 right-0 z-[60] flex w-full max-w-xl flex-col border-l bg-background shadow-[-20px_0_40px_rgba(15,23,42,0.12)]"
+          >
+            {children}
+          </motion.aside>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
 
 /** Modal form driven by `FieldDef`s; strips empty strings before posting. */
 function FormModal({ open, onClose, title, fields, initial = {}, submitLabel = 'Save', onSubmit, pending, children }: {
@@ -383,11 +425,18 @@ export function SalesLeadsPage() {
   const me = useMe();
   const basePath = me.basePath;
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const drawer = isBdaPortal(basePath);
+  const selectedId = searchParams.get('lead');
   const [filter, setFilter] = useState({ status: 'all', temperature: '', search: '', unassigned: false });
   const qs = new URLSearchParams({ status: filter.status, ...(filter.temperature && { temperature: filter.temperature }), ...(filter.search && { search: filter.search }), ...(filter.unassigned && { unassigned: 'true' }) }).toString();
   const q = useSales<Any[]>(`/leads?${qs}`);
   const [open, setOpen] = useState(false);
   const create = useSalesAction((v: Any) => post('/leads', v), 'Lead created', () => setOpen(false));
+  const openLead = (id: string) => {
+    if (drawer) setSearchParams({ lead: id });
+    else navigate(`${basePath}/leads/${id}`);
+  };
   return (
     <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -399,7 +448,7 @@ export function SalesLeadsPage() {
       </div>
       <Query q={q}>
         {(rows) => (
-          <DataTable rows={rows} onRowClick={(r) => navigate(`${basePath}/leads/${r._id}`)} empty="No leads match."
+          <DataTable rows={rows} selectedId={selectedId || undefined} onRowClick={(r) => openLead(r._id)} empty="No leads match."
             columns={[
               { key: 'contactPerson', header: 'Lead', render: (r) => <div><p className="font-medium">{r.contactPerson}</p><p className="text-xs text-muted-foreground">{r.company || r.phone || '—'}</p></div> },
               { key: 'source', header: 'Source', render: (r) => humanize(r.source) },
@@ -411,12 +460,26 @@ export function SalesLeadsPage() {
         )}
       </Query>
       <FormModal open={open} onClose={() => setOpen(false)} title="New lead" fields={LEAD_FIELDS} initial={{ source: 'website', temperature: 'warm', priority: 'medium' }} onSubmit={(v) => create.mutate(v)} pending={create.isPending} />
+      {drawer && (
+        <RightInspector open={Boolean(selectedId)} onClose={() => setSearchParams({})}>
+          {selectedId && <LeadInspector id={selectedId} onClose={() => setSearchParams({})} />}
+        </RightInspector>
+      )}
     </>
   );
 }
 
 export function SalesLeadDetailPage() {
   const { id } = useParams();
+  const me = useMe();
+  if (isBdaPortal(me.basePath) && id) {
+    return <Navigate to={`${me.basePath}/leads?lead=${id}`} replace />;
+  }
+  if (!id) return null;
+  return <LeadInspector id={id} />;
+}
+
+function LeadInspector({ id, onClose }: { id: string; onClose?: () => void }) {
   const me = useMe();
   const basePath = me.basePath;
   const navigate = useNavigate();
@@ -432,27 +495,43 @@ export function SalesLeadDetailPage() {
   const followup = useSalesAction((v: Any) => post('/follow-ups', { ...v, leadId: id }), 'Follow-up scheduled', close);
   const meeting = useSalesAction((v: Any) => post('/meetings', { ...v, leadId: id }), 'Meeting scheduled', close);
   const deal = useSalesAction((v: Any) => post('/deals', { ...v, leadId: id }), 'Deal created', (r) => navigate(`${basePath}/deals/${r._id}`));
-  const archive = useSalesAction(() => api.data(`/sales-crm/leads/${id}`, 'DELETE'), 'Lead archived', () => navigate(`${basePath}/leads`));
+  const archive = useSalesAction(() => api.data(`/sales-crm/leads/${id}`, 'DELETE'), 'Lead archived', () => {
+    onClose?.();
+    if (!onClose) navigate(`${basePath}/leads`);
+  });
   return (
     <Query q={q}>
       {({ lead, calls, meetings, followUps, deals, activity, messages = [] }) => (
         <LeadCallProvider leadId={lead._id} phone={lead.phone} contactName={lead.contactPerson} company={lead.company} enabled={Boolean(me.modules['comm.calls'])} basePath={basePath}>
-        <>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button variant="ghost" size="sm" asChild><Link to={`${basePath}/leads`}><ArrowLeft className="mr-1 h-4 w-4" />Leads</Link></Button>
-            <h2 className="text-lg font-semibold">{lead.contactPerson}</h2>
-            <StatusPill value={lead.temperature} />
-            <div className="ml-auto flex flex-wrap gap-2">
-              <Select className="w-36" value={lead.status} onChange={(e) => status.mutate(e.target.value)}>{LEAD_STATUSES.map((s) => <option key={s} value={s}>{humanize(s)}</option>)}</Select>
-              {me.isSalesAdmin && (
-                <Select className="w-44" value={lead.assignedEmployeeId || ''} onChange={(e) => e.target.value && assign.mutate(e.target.value)}>
-                  <option value="">Assign to…</option>
-                  {(team.data || []).filter((e) => e.status === 'active').map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}
-                </Select>
-              )}
-              <Button variant="outline" onClick={() => setModal('edit')}>Edit</Button>
-              <Button variant="ghost" className="text-error" onClick={() => confirm('Archive this lead?') && archive.mutate(undefined)}><Trash2 className="h-4 w-4" /></Button>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-start gap-3 border-b px-5 py-4">
+            {!onClose && (
+              <Button variant="ghost" size="sm" asChild><Link to={`${basePath}/leads`}><ArrowLeft className="mr-1 h-4 w-4" />Leads</Link></Button>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="truncate text-lg font-semibold">{lead.contactPerson}</h2>
+                <StatusPill value={lead.temperature} />
+              </div>
+              <p className="truncate text-xs text-muted-foreground">{lead.company || lead.phone || lead.email || 'Lead'}</p>
             </div>
+            {onClose && (
+              <Button variant="ghost" size="icon" className="shrink-0" onClick={onClose} aria-label="Close">
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+          <div className="flex flex-wrap gap-2">
+            <Select className="w-36" value={lead.status} onChange={(e) => status.mutate(e.target.value)}>{LEAD_STATUSES.map((s) => <option key={s} value={s}>{humanize(s)}</option>)}</Select>
+            {me.isSalesAdmin && (
+              <Select className="w-44" value={lead.assignedEmployeeId || ''} onChange={(e) => e.target.value && assign.mutate(e.target.value)}>
+                <option value="">Assign to…</option>
+                {(team.data || []).filter((e) => e.status === 'active').map((e) => <option key={e._id} value={e._id}>{e.name}</option>)}
+              </Select>
+            )}
+            <Button variant="outline" size="sm" onClick={() => setModal('edit')}>Edit</Button>
+            <Button variant="ghost" size="sm" className="text-error" onClick={() => confirm('Archive this lead?') && archive.mutate(undefined)}><Trash2 className="h-4 w-4" /></Button>
           </div>
           <div className="flex flex-wrap gap-2">
             {me.modules['comm.calls'] && <Button size="sm" variant="outline" onClick={() => setModal('call')}><Phone className="mr-1.5 h-3.5 w-3.5" />Log call</Button>}
@@ -462,40 +541,39 @@ export function SalesLeadDetailPage() {
             {me.modules['leads.qualification'] && <Button size="sm" variant="outline" onClick={() => setModal('qual')}>Qualification</Button>}
             {me.modules['sales.deals'] && <Button size="sm" onClick={() => setModal('deal')}>Create deal</Button>}
           </div>
-          <PageGrid cols="2">
-            <SectionCard title="Details">
-              <LeadPhoneRow phone={lead.phone} enabled={Boolean(me.modules['comm.calls'])} />
-              <KeyValue items={[
-                ['Company', lead.company || '—'], ['Email', lead.email || '—'], ['City', lead.city || '—'],
-                ['Source', humanize(lead.source)], ['Industry', lead.industry || '—'], ['Priority', humanize(lead.priority)],
-                ['Last contacted', fmtDateTime(lead.lastContactedAt)], ['Next follow-up', fmtDateTime(lead.nextFollowUpAt)],
-                ['Requirement', lead.requirement || '—'],
-              ]} />
-            </SectionCard>
-            <SectionCard title="Qualification">
-              <KeyValue items={[
-                ['Budget', lead.budget ? inr(lead.budget) : '—'], ['Timeline', lead.timeline || '—'], ['Decision maker', lead.decisionMaker || '—'],
-                ['Business need', lead.businessNeed || '—'], ['Probability', `${lead.probability || 0}%`], ['Next action', lead.nextAction || '—'],
-                ['Notes', lead.qualificationNotes || '—'],
-              ]} />
-            </SectionCard>
-            <SectionCard title={`Deals (${deals.length})`}>
-              <SimpleList rows={deals} empty="No deals yet." render={(d) => <><Link className="hover:underline" to={`${basePath}/deals/${d._id}`}>{d.dealName}</Link><span className="flex items-center gap-2">{inr(d.value)}<StatusPill value={d.stage} /></span></>} />
-            </SectionCard>
-            <SectionCard title="Call History">
-              <CallHistory calls={calls} />
-            </SectionCard>
-            <SectionCard title={`Follow-ups (${followUps.length})`}>
-              <SimpleList rows={followUps} empty="None scheduled." render={(f) => <><span>{f.notes || humanize(f.type)}</span><span className="flex items-center gap-2 text-xs text-muted-foreground">{fmtDateTime(f.dueAt)}<StatusPill value={f.status} /></span></>} />
-            </SectionCard>
-            <SectionCard title={`Meetings (${meetings.length})`}>
-              <SimpleList rows={meetings} empty="No meetings." render={(m) => <><span>{m.title}</span><span className="flex items-center gap-2 text-xs text-muted-foreground">{fmtDateTime(m.startsAt)}<StatusPill value={m.status} /></span></>} />
-            </SectionCard>
-            <SectionCard title={`Email / WhatsApp (${messages.length})`}>
-              <SimpleList rows={messages} empty="No messages logged." render={(m) => <><span><StatusPill value={m.channel} /> {m.subject || m.body?.slice(0, 80)}</span><span className="text-xs text-muted-foreground">{fmtDateTime(m.sentAt)}</span></>} />
-            </SectionCard>
-          </PageGrid>
+          <SectionCard title="Details">
+            <LeadPhoneRow phone={lead.phone} enabled={Boolean(me.modules['comm.calls'])} />
+            <KeyValue items={[
+              ['Company', lead.company || '—'], ['Email', lead.email || '—'], ['City', lead.city || '—'],
+              ['Source', humanize(lead.source)], ['Industry', lead.industry || '—'], ['Priority', humanize(lead.priority)],
+              ['Last contacted', fmtDateTime(lead.lastContactedAt)], ['Next follow-up', fmtDateTime(lead.nextFollowUpAt)],
+              ['Requirement', lead.requirement || '—'],
+            ]} />
+          </SectionCard>
+          <SectionCard title="Qualification">
+            <KeyValue items={[
+              ['Budget', lead.budget ? inr(lead.budget) : '—'], ['Timeline', lead.timeline || '—'], ['Decision maker', lead.decisionMaker || '—'],
+              ['Business need', lead.businessNeed || '—'], ['Probability', `${lead.probability || 0}%`], ['Next action', lead.nextAction || '—'],
+              ['Notes', lead.qualificationNotes || '—'],
+            ]} />
+          </SectionCard>
+          <SectionCard title={`Deals (${deals.length})`}>
+            <SimpleList rows={deals} empty="No deals yet." render={(d) => <><Link className="hover:underline" to={`${basePath}/deals/${d._id}`}>{d.dealName}</Link><span className="flex items-center gap-2">{inr(d.value)}<StatusPill value={d.stage} /></span></>} />
+          </SectionCard>
+          <SectionCard title="Call History">
+            <CallHistory calls={calls} />
+          </SectionCard>
+          <SectionCard title={`Follow-ups (${followUps.length})`}>
+            <SimpleList rows={followUps} empty="None scheduled." render={(f) => <><span>{f.notes || humanize(f.type)}</span><span className="flex items-center gap-2 text-xs text-muted-foreground">{fmtDateTime(f.dueAt)}<StatusPill value={f.status} /></span></>} />
+          </SectionCard>
+          <SectionCard title={`Meetings (${meetings.length})`}>
+            <SimpleList rows={meetings} empty="No meetings." render={(m) => <><span>{m.title}</span><span className="flex items-center gap-2 text-xs text-muted-foreground">{fmtDateTime(m.startsAt)}<StatusPill value={m.status} /></span></>} />
+          </SectionCard>
+          <SectionCard title={`Email / WhatsApp (${messages.length})`}>
+            <SimpleList rows={messages} empty="No messages logged." render={(m) => <><span><StatusPill value={m.channel} /> {m.subject || m.body?.slice(0, 80)}</span><span className="text-xs text-muted-foreground">{fmtDateTime(m.sentAt)}</span></>} />
+          </SectionCard>
           <SectionCard title="Activity timeline"><SalesActivityList rows={activity} /></SectionCard>
+          </div>
 
           <FormModal open={modal === 'edit'} onClose={close} title="Edit lead" fields={LEAD_FIELDS} initial={lead} onSubmit={(v) => { const { _id, organizationId, createdAt, updatedAt, __v, status: _s, assignedEmployeeId, recordStatus, createdBy, updatedBy, ...rest } = v; void _id; void organizationId; void createdAt; void updatedAt; void __v; void _s; void assignedEmployeeId; void recordStatus; void createdBy; void updatedBy; edit.mutate(Object.fromEntries(LEAD_FIELDS.map((f) => [f.name, rest[f.name]]).filter(([, x]) => x !== undefined))); }} pending={edit.isPending} />
           <FormModal open={modal === 'qual'} onClose={close} title="Qualification" initial={lead} pending={qual.isPending} onSubmit={(v) => qual.mutate(v)} fields={[
@@ -511,7 +589,7 @@ export function SalesLeadDetailPage() {
           <FormModal open={modal === 'followup'} onClose={close} title="Schedule follow-up" initial={{ type: 'call', priority: 'medium' }} pending={followup.isPending} onSubmit={(v) => followup.mutate(v)} fields={FOLLOWUP_FIELDS} />
           <FormModal open={modal === 'meeting'} onClose={close} title="Schedule meeting" initial={{ type: 'discovery' }} pending={meeting.isPending} onSubmit={(v) => meeting.mutate(v)} fields={MEETING_FIELDS} />
           <FormModal open={modal === 'deal'} onClose={close} title="Create deal" initial={{ dealName: lead.company || lead.contactPerson, probability: 10, priority: 'medium' }} pending={deal.isPending} onSubmit={(v) => deal.mutate(v)} fields={DEAL_FIELDS} />
-        </>
+        </div>
         </LeadCallProvider>
       )}
     </Query>

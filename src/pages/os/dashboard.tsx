@@ -1,6 +1,7 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
-import { AlertTriangle, BellRing, Briefcase, Building2, CircleDollarSign, FolderKanban, Send, Target, Users } from 'lucide-react';
+import { AlertTriangle, BellRing, Briefcase, Building2, CircleDollarSign, FolderKanban, Save, Send, Target, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/permissions';
@@ -8,8 +9,11 @@ import { useAuthStore } from '@/stores/auth';
 import { PageHeader } from '@/components/layout/page-header';
 import { PageGrid } from '@/components/layout/page-layout';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { PageError, PageLoading } from '@/components/shared/page-states';
 import { SectionCard, StatCard, StatusPill, fmtDate, fmtDateTime, humanize, inr } from '@/components/shared/os-ui';
+
+const PIPELINE_STAGES = ['new', 'contacted', 'qualified', 'unqualified', 'converted', 'lost'] as const;
 
 interface Dashboard {
   canSeeAll: boolean;
@@ -27,10 +31,32 @@ interface Dashboard {
   attention: { overdueInvoices: { count: number; amount: number }; followUps: { id: string; notes: string; dueAt: string }[]; deliveryRisk: { dueSoon: number; overdueTasks: number } };
 }
 
+type StageTargetRow = {
+  employeeId: string;
+  name: string;
+  employeeCode?: string;
+  stages: Record<string, number>;
+  actual: Record<string, number>;
+};
+
 export default function OsDashboardPage() {
   const user = useAuthStore((s) => s.user);
   const can = useCan();
+  const qc = useQueryClient();
+  const canManageBdaTargets = can('sales_crm:write') || user?.role === 'admin';
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['os-dashboard'], queryFn: () => api.data<Dashboard>('/os/dashboard') });
+  const stageTargets = useQuery({
+    queryKey: ['sales-stage-targets'],
+    queryFn: () => api.data<StageTargetRow[]>('/sales-crm/stage-targets'),
+    enabled: canManageBdaTargets || can('sales_crm:read'),
+    retry: false,
+  });
+  const [drafts, setDrafts] = useState<Record<string, Record<string, number>>>({});
+
+  useEffect(() => {
+    if (!stageTargets.data) return;
+    setDrafts(Object.fromEntries(stageTargets.data.map((r) => [r.employeeId, { ...r.stages }])));
+  }, [stageTargets.data]);
 
   const alerts = useMutation({
     mutationFn: () => api.data<{ message: string }>('/os/dashboard/alerts', 'POST'),
@@ -42,12 +68,22 @@ export default function OsDashboardPage() {
     onSuccess: (r) => toast.success(r.message),
     onError: (e: Error) => toast.error(e.message),
   });
+  const saveStages = useMutation({
+    mutationFn: ({ employeeId, stages }: { employeeId: string; stages: Record<string, number> }) =>
+      api.data('/sales-crm/stage-targets', 'PUT', { employeeId, stages }),
+    onSuccess: () => {
+      toast.success('Pipeline stage targets saved');
+      void qc.invalidateQueries({ queryKey: ['sales-stage-targets'] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   if (isError) return <PageError onRetry={() => refetch()} />;
   if (isLoading || !data) return <PageLoading rows={6} />;
   const d = data;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const bdaRows = stageTargets.data || [];
 
   return (
     <>
@@ -176,14 +212,14 @@ export default function OsDashboardPage() {
 
       {d.canSeeAll && d.workload.length > 0 && (
         <SectionCard
-          title="Team workload"
+          title="Team workload & check-in"
           action={<p className="max-w-xs text-right text-xs text-muted-foreground">Nudge sends a check-in notification (not a new task). Sales/BDA people open it in their portal.</p>}
           bodyClassName="p-0"
         >
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                {['Teammate', 'Active', 'Overdue', 'Blocked', 'Completed', ''].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}
+                {['Teammate', 'Active', 'Overdue', 'Blocked', 'Completed', 'Check-in'].map((h) => <th key={h} className="px-5 py-3 font-medium">{h}</th>)}
               </tr></thead>
               <tbody>
                 {d.workload.map((w) => (
@@ -210,6 +246,92 @@ export default function OsDashboardPage() {
               </tbody>
             </table>
           </div>
+        </SectionCard>
+      )}
+
+      {(canManageBdaTargets || bdaRows.length > 0) && (
+        <SectionCard
+          title="BDA pipeline stage targets"
+          action={<p className="max-w-sm text-right text-xs text-muted-foreground">This month · set how many leads each BDA should move through each stage. Actual = leads assigned to them created this month.</p>}
+          bodyClassName="p-0"
+        >
+          {stageTargets.isLoading ? (
+            <div className="p-5"><PageLoading rows={3} /></div>
+          ) : stageTargets.isError ? (
+            <p className="p-5 text-sm text-muted-foreground">Sales CRM is not available for stage targets yet.</p>
+          ) : bdaRows.length === 0 ? (
+            <p className="p-5 text-sm text-muted-foreground">No BDAs yet. Add sales employees from Employees or Sales CRM → Team.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[48rem] text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="px-5 py-3 font-medium">BDA</th>
+                    {PIPELINE_STAGES.map((st) => (
+                      <th key={st} className="px-3 py-3 font-medium">{humanize(st)}</th>
+                    ))}
+                    {canManageBdaTargets && <th className="px-5 py-3 font-medium" />}
+                  </tr>
+                </thead>
+                <tbody>
+                  {bdaRows.map((row) => {
+                    const draft = drafts[row.employeeId] || row.stages;
+                    return (
+                      <tr key={row.employeeId} className="border-b last:border-0 align-top">
+                        <td className="px-5 py-3">
+                          <p className="font-medium">{row.name}</p>
+                          <p className="font-mono text-[11px] text-muted-foreground">{row.employeeCode}</p>
+                        </td>
+                        {PIPELINE_STAGES.map((st) => {
+                          const target = Number(draft[st] || 0);
+                          const actual = Number(row.actual?.[st] || 0);
+                          const met = target > 0 && actual >= target;
+                          return (
+                            <td key={st} className="px-3 py-3">
+                              {canManageBdaTargets ? (
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  className="h-9 w-20"
+                                  value={Number.isFinite(target) ? target : 0}
+                                  onChange={(e) =>
+                                    setDrafts((prev) => ({
+                                      ...prev,
+                                      [row.employeeId]: {
+                                        ...(prev[row.employeeId] || row.stages),
+                                        [st]: Math.max(0, Number(e.target.value) || 0),
+                                      },
+                                    }))
+                                  }
+                                />
+                              ) : (
+                                <span className="tabular-nums font-medium">{target}</span>
+                              )}
+                              <p className={`mt-1 text-[11px] tabular-nums ${met ? 'text-success' : 'text-muted-foreground'}`}>
+                                actual {actual}{target > 0 ? ` / ${target}` : ''}
+                              </p>
+                            </td>
+                          );
+                        })}
+                        {canManageBdaTargets && (
+                          <td className="px-5 py-3 text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={saveStages.isPending}
+                              onClick={() => saveStages.mutate({ employeeId: row.employeeId, stages: draft })}
+                            >
+                              <Save className="mr-1.5 h-3.5 w-3.5" />Save
+                            </Button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </SectionCard>
       )}
 

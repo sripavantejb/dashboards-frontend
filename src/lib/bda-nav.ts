@@ -33,9 +33,7 @@ export const BDA_NAV_SECTIONS: BdaNavSection[] = [
   {
     title: 'Pipeline',
     items: [
-      { name: 'Leads', to: 'leads', icon: Users, module: 'leads.management' },
-      { name: 'Deals', to: 'deals', icon: Kanban, module: 'sales.deals' },
-      { name: 'Customers', to: 'customers', icon: Building2, module: 'customers.management' },
+      { name: 'Leads', to: 'leads', icon: Users, anyModules: ['leads.management', 'sales.deals', 'customers.management'] },
     ],
   },
   {

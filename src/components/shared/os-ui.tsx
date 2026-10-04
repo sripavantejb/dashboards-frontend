@@ -126,7 +126,7 @@ export interface Column<T = AnyRow> {
   className?: string;
 }
 
-export function DataTable<T extends AnyRow = AnyRow>({ columns, rows, onRowClick, empty = 'Nothing here yet' }: { columns: Column<T>[]; rows: T[]; onRowClick?: (row: T) => void; empty?: string }) {
+export function DataTable<T extends AnyRow = AnyRow>({ columns, rows, onRowClick, empty = 'Nothing here yet', selectedId }: { columns: Column<T>[]; rows: T[]; onRowClick?: (row: T) => void; empty?: string; selectedId?: string }) {
   return (
     <div className="overflow-x-auto rounded-lg border bg-card shadow-card">
       <table className="w-full text-sm">
@@ -145,7 +145,11 @@ export function DataTable<T extends AnyRow = AnyRow>({ columns, rows, onRowClick
               <tr
                 key={row._id || row.id || i}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
-                className={cn('border-b last:border-0 transition-colors', onRowClick && 'cursor-pointer hover:bg-surface-soft/60')}
+                className={cn(
+                  'border-b last:border-0 transition-colors',
+                  onRowClick && 'cursor-pointer hover:bg-surface-soft/60',
+                  selectedId && (row._id === selectedId || row.id === selectedId) && 'bg-surface-soft'
+                )}
               >
                 {columns.map((c) => (
                   <td key={c.key} className={cn('px-4 py-3 align-middle', c.className)}>
