@@ -94,7 +94,7 @@ export default function CompanyUsersPage() {
               <Button variant="outline" size="sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
             </Link>
             <Button size="sm" onClick={() => setShowCreate(true)}>
-              <Plus className="h-4 w-4 mr-1" /> Create Company Admin Login
+              <Plus className="h-4 w-4 mr-1" /> Create Login / BDA
             </Button>
           </div>
         }
@@ -175,9 +175,12 @@ export default function CompanyUsersPage() {
         </PageSection>
       )}
 
-      <SimpleModal open={showCreate} onClose={() => setShowCreate(false)} title="Create Company Admin Login">
+      <SimpleModal open={showCreate} onClose={() => setShowCreate(false)} title="Create Company Login">
         <FormStack>
-          <p className="text-sm text-muted-foreground">These credentials let the company admin sign in at /login and manage their team.</p>
+          <p className="text-sm text-muted-foreground">
+            Role <strong>admin</strong> signs in at /login. Role <strong>sales</strong> is a BDA and signs in at{' '}
+            <code className="text-xs">/{org?.slug || 'company'}/bda</code> with this company&apos;s logo and name.
+          </p>
           <FormRow>
             <FormField><Label>First Name *</Label><Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} /></FormField>
             <FormField><Label>Last Name *</Label><Input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} /></FormField>
