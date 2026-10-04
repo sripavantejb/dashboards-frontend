@@ -1,12 +1,14 @@
 import { useEffect } from 'react';
-import { Outlet, useNavigate } from 'react-router';
+import { Outlet, useNavigate, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { BdaShell } from '@/components/bda/bda-shell';
 import { PageContainer } from '@/components/layout/page-layout';
 import { PageLoading } from '@/components/shared/page-states';
 import { api } from '@/lib/api';
+import { bdaBasePath } from '@/lib/bda-path';
 import { useAuthStore } from '@/stores/auth';
 import type { Organization } from '@/types';
+import BdaLoginPage from '@/pages/bda/login';
 
 type SalesMe = {
   employee: { employeeCode?: string; _id: string };
@@ -18,7 +20,9 @@ type SalesMe = {
 /** Dedicated BDA portal shell — sales employees only; sales admins go to ERP Sales CRM. */
 export default function BdaLayout() {
   const navigate = useNavigate();
-  const { isAuthenticated, hasHydrated, user, updateOrganization } = useAuthStore();
+  const { orgSlug = '' } = useParams<{ orgSlug: string }>();
+  const { isAuthenticated, hasHydrated, user, organization, updateOrganization } = useAuthStore();
+  const basePath = bdaBasePath(orgSlug);
 
   const sessionOrg = useQuery({
     queryKey: ['session-organization'],
@@ -29,14 +33,18 @@ export default function BdaLayout() {
 
   useEffect(() => {
     if (sessionOrg.data?.organization) {
-      updateOrganization({ name: sessionOrg.data.organization.name, logo: sessionOrg.data.organization.logo });
+      const org = sessionOrg.data.organization;
+      updateOrganization({ name: org.name, logo: org.logo, slug: org.slug });
     }
   }, [sessionOrg.data, updateOrganization]);
 
   useEffect(() => {
-    if (!hasHydrated) return;
-    if (!isAuthenticated) navigate('/login');
-  }, [hasHydrated, isAuthenticated, navigate]);
+    if (!hasHydrated || !isAuthenticated) return;
+    const ownSlug = organization?.slug || sessionOrg.data?.organization?.slug;
+    if (ownSlug && orgSlug && ownSlug !== orgSlug) {
+      navigate(bdaBasePath(ownSlug), { replace: true });
+    }
+  }, [hasHydrated, isAuthenticated, organization?.slug, sessionOrg.data?.organization?.slug, orgSlug, navigate]);
 
   const me = useQuery({
     queryKey: ['sales', '/me'],
@@ -46,7 +54,7 @@ export default function BdaLayout() {
   });
 
   useEffect(() => {
-    if (!me.isFetched) return;
+    if (!isAuthenticated || !me.isFetched) return;
     if (me.isError) {
       navigate('/dashboard', { replace: true });
       return;
@@ -54,17 +62,23 @@ export default function BdaLayout() {
     if (me.data?.isSalesAdmin) {
       navigate('/sales-crm', { replace: true });
     }
-  }, [me.isFetched, me.isError, me.data, navigate]);
+  }, [isAuthenticated, me.isFetched, me.isError, me.data, navigate]);
 
-  if (!hasHydrated || !isAuthenticated) return null;
+  if (!hasHydrated) return null;
+  if (!isAuthenticated) return <BdaLoginPage />;
+
   if (me.isLoading || !me.data) return <PageLoading />;
   if (me.isError || me.data.isSalesAdmin) return null;
+
+  const slug = organization?.slug || orgSlug;
 
   return (
     <BdaShell
       modules={me.data.modules}
       employeeCode={me.data.employee?.employeeCode}
       displayName={me.data.name || user?.email || 'BDA'}
+      basePath={basePath}
+      orgSlug={slug}
     >
       <PageContainer className="max-w-[96rem]">
         <Outlet />

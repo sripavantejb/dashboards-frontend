@@ -352,10 +352,10 @@ export function ActivityPage() {
   const { data = [], isLoading, isError, refetch } = useQuery({ queryKey: ['activity', entityType], queryFn: () => api.data<Any[]>(`/os/activity?limit=200${entityType ? `&entityType=${entityType}` : ''}`) });
   return (
     <>
-      <PageHeader title="Activity" description="An audit trail of everything that changed across clients, delivery and finance." />
+      <PageHeader title="Activity" description="An audit trail of everything that changed across clients, delivery, finance, and BDA / Sales CRM." />
       <Select className="sm:w-48" value={entityType} onChange={(e) => setEntityType(e.target.value)}>
         <option value="">All activity</option>
-        {['project', 'task', 'milestone', 'invoice', 'payment', 'vendor', 'conversion', 'meeting', 'document', 'portal'].map((t) => <option key={t} value={t}>{humanize(t)}</option>)}
+        {['project', 'task', 'milestone', 'invoice', 'payment', 'vendor', 'conversion', 'meeting', 'document', 'portal', 'sales_lead', 'sales_deal', 'sales_call', 'sales_followup', 'sales_meeting', 'sales_task', 'sales'].map((t) => <option key={t} value={t}>{humanize(t)}</option>)}
       </Select>
       {isError ? <PageError onRetry={() => refetch()} /> : isLoading ? <PageLoading /> : (
         <DataTable rows={data as any} onRowClick={(r) => r.publicCode && navigate(`/conversions/${r.publicCode}`)} empty="No activity yet."

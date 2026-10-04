@@ -1,7 +1,7 @@
 import { adminPath } from '@/lib/admin-routes';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Plus, KeyRound, Trash2, Shield } from 'lucide-react';
+import { ArrowLeft, Plus, KeyRound, Trash2, Shield, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { PageHeader } from '@/components/layout/page-header';
@@ -101,8 +101,29 @@ export default function CompanyUsersPage() {
       />
 
       <Card>
-        <CardContent className="p-5 lg:p-6 text-sm text-muted-foreground leading-relaxed">
-          <p><strong className="text-foreground">Hierarchy:</strong> You (Super Admin) create company admin logins here → Company admins sign in at <Link to="/login" className="underline">/login</Link> → They manage employees from their <strong>Employees</strong> page.</p>
+        <CardContent className="flex flex-col gap-3 p-5 lg:p-6 text-sm text-muted-foreground leading-relaxed">
+          <p>
+            <strong className="text-foreground">Hierarchy:</strong> You (Super Admin) create company admin / BDA logins here → Company admins sign in at{' '}
+            <Link to="/login" className="underline">/login</Link> → BDAs use the branded portal below → Company admins manage more BDAs from <strong>Employees</strong>.
+          </p>
+          {org?.slug && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-hairline bg-surface-soft px-3 py-2 text-foreground">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">BDA login</span>
+              <code className="text-xs">/{org.slug}/bda</code>
+              <Button
+                size="sm"
+                variant="outline"
+                className="ml-auto"
+                onClick={() => {
+                  const url = `${window.location.origin}/${org.slug}/bda`;
+                  void navigator.clipboard.writeText(url);
+                  toast.success('BDA login URL copied');
+                }}
+              >
+                <Copy className="mr-1 h-3 w-3" /> Copy URL
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 

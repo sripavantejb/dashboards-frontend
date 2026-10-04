@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { CompanyMark } from '@/components/company/company-mark';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router';
 
@@ -20,6 +21,9 @@ export interface AuthSplitLayoutProps {
   steps: AuthSplitStep[];
   formTitle: string;
   formDescription: string;
+  /** Company name shown with logo on branded portals (BDA). */
+  companyName?: string;
+  companyLogo?: string;
   emailLabel?: string;
   emailPlaceholder?: string;
   passwordLabel?: string;
@@ -41,6 +45,8 @@ export function AuthSplitLayout({
   steps,
   formTitle,
   formDescription,
+  companyName,
+  companyLogo,
   emailLabel = 'Email',
   emailPlaceholder = 'you@company.com',
   passwordLabel = 'Password',
@@ -57,6 +63,7 @@ export function AuthSplitLayout({
   const [showPassword, setShowPassword] = useState(false);
   const reduceMotion = useReducedMotion();
   const year = new Date().getFullYear();
+  const branded = Boolean(companyName);
 
   const panelMotion = reduceMotion
     ? {}
@@ -76,7 +83,6 @@ export function AuthSplitLayout({
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
-      {/* Left panel — branding & steps */}
       <motion.div
         className="relative hidden flex-col justify-between overflow-hidden bg-primary px-10 py-12 text-primary-foreground lg:flex lg:px-14 lg:py-16"
         {...panelMotion}
@@ -94,13 +100,30 @@ export function AuthSplitLayout({
           aria-hidden
         />
 
-        <div className="relative z-10">
-          <Badge
-            variant="outline"
-            className="border-primary-foreground/25 bg-primary-foreground/10 px-4 py-1.5 text-sm text-primary-foreground"
-          >
-            {badge}
-          </Badge>
+        <div className="relative z-10 space-y-5">
+          {branded ? (
+            <div className="flex items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-primary-foreground/20 bg-primary-foreground/10 p-2 shadow-lg backdrop-blur-sm">
+                <CompanyMark name={companyName} logo={companyLogo} className="h-10 w-10 rounded-xl border-0 bg-transparent text-lg text-primary-foreground" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate font-display text-xl font-semibold tracking-tight">{companyName}</p>
+                <Badge
+                  variant="outline"
+                  className="mt-1 border-primary-foreground/25 bg-primary-foreground/10 px-2.5 py-0.5 text-[11px] uppercase tracking-[0.14em] text-primary-foreground"
+                >
+                  {badge}
+                </Badge>
+              </div>
+            </div>
+          ) : (
+            <Badge
+              variant="outline"
+              className="border-primary-foreground/25 bg-primary-foreground/10 px-4 py-1.5 text-sm text-primary-foreground"
+            >
+              {badge}
+            </Badge>
+          )}
         </div>
 
         <div className="relative z-10 max-w-md space-y-8">
@@ -135,35 +158,68 @@ export function AuthSplitLayout({
         </div>
 
         <p className="relative z-10 text-xs text-primary-foreground/40">
-          Powered by{' '}
-          <a
-            href="https://edicomedia.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline underline-offset-2 hover:text-primary-foreground/60"
-          >
-            EditcoMedia
-          </a>
+          {branded ? (
+            <>
+              {companyName} sales portal · Powered by{' '}
+              <a
+                href="https://edicomedia.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-2 hover:text-primary-foreground/60"
+              >
+                EditcoMedia
+              </a>
+            </>
+          ) : (
+            <>
+              Powered by{' '}
+              <a
+                href="https://edicomedia.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-2 hover:text-primary-foreground/60"
+              >
+                EditcoMedia
+              </a>
+            </>
+          )}
         </p>
       </motion.div>
 
-      {/* Right panel — form */}
-      <motion.div
-        className="flex min-h-screen flex-col bg-background"
-        {...formMotion}
-      >
+      <motion.div className="flex min-h-screen flex-col bg-background" {...formMotion}>
         <div className="flex flex-1 flex-col justify-center px-6 py-10 sm:px-10 lg:px-16 xl:px-20">
-          {/* Mobile header */}
           <div className="mb-8 lg:hidden">
-            <Link to="/" className="font-display text-lg font-semibold tracking-tight">
-              Agency ERP
-            </Link>
-            <Badge variant="outline" className="ml-3 text-xs">
-              {badge}
-            </Badge>
+            {branded ? (
+              <div className="flex items-center gap-3">
+                <CompanyMark name={companyName} logo={companyLogo} className="h-10 w-10 border shadow-sm" />
+                <div className="min-w-0">
+                  <p className="truncate font-display text-lg font-semibold tracking-tight">{companyName}</p>
+                  <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{badge}</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <Link to="/" className="font-display text-lg font-semibold tracking-tight">
+                  Agency ERP
+                </Link>
+                <Badge variant="outline" className="ml-3 text-xs">
+                  {badge}
+                </Badge>
+              </>
+            )}
           </div>
 
           <div className="mx-auto w-full max-w-md">
+            {branded && (
+              <div className="mb-6 hidden items-center gap-3 rounded-2xl border border-hairline bg-surface-soft/80 px-4 py-3 lg:flex">
+                <CompanyMark name={companyName} logo={companyLogo} className="h-11 w-11 border shadow-sm" />
+                <div className="min-w-0">
+                  <p className="truncate font-display text-base font-semibold tracking-tight">{companyName}</p>
+                  <p className="text-xs text-muted-foreground">Sign in to your BDA workspace</p>
+                </div>
+              </div>
+            )}
+
             <h2 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
               {formTitle}
             </h2>
@@ -220,7 +276,7 @@ export function AuthSplitLayout({
         </div>
 
         <p className="px-6 pb-6 text-center text-xs text-muted-foreground lg:text-left lg:px-16">
-          &copy; {year} Agency ERP
+          &copy; {year} {companyName || 'Agency ERP'}
         </p>
       </motion.div>
     </div>

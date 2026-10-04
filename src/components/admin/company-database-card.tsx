@@ -178,8 +178,8 @@ export function CompanyDatabaseCard({ organizationId, slug }: { organizationId: 
               {!isLoading && <Badge variant={badge.variant}>{badge.label}</Badge>}
             </div>
             <p className="text-sm text-muted-foreground">
-              Logins, users and company settings always stay in the platform database. Business data (leads, clients, projects, invoices…) is stored in
-              {data?.enabled ? ' this company\'s own MongoDB database.' : ' the shared platform database until you connect a dedicated one.'}
+              Platform-admin only. Logins, users and company settings always stay in the platform database. Business data (leads, clients, projects, invoices, BDA / Sales CRM…) defaults to the shared platform MongoDB
+              {data?.enabled ? '; this company is currently on its own dedicated database.' : ' until a platform admin connects a dedicated one. Company admins cannot change this.'}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

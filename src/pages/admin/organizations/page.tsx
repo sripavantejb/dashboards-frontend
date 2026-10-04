@@ -36,6 +36,7 @@ export default function AdminOrganizationsPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     name: '',
+    slug: '',
     industry: '',
     website: '',
     logo: '',
@@ -64,7 +65,7 @@ export default function AdminOrganizationsPage() {
       queryClient.invalidateQueries({ queryKey: ['admin-organizations'] });
       queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
       setShowForm(false);
-      setForm({ name: '', industry: '', website: '', logo: '', plan: 'starter', adminEmail: '', adminPassword: '', adminFirstName: '', adminLastName: '' });
+      setForm({ name: '', slug: '', industry: '', website: '', logo: '', plan: 'starter', adminEmail: '', adminPassword: '', adminFirstName: '', adminLastName: '' });
       toast.success('Company created with ERP admin login');
     },
     onError: (err: Error) => toast.error(err.message || 'Failed to create company'),
@@ -185,6 +186,17 @@ export default function AdminOrganizationsPage() {
           <FormField>
             <Label>Company Name *</Label>
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Acme Agency" />
+          </FormField>
+          <FormField>
+            <Label>BDA / portal slug</Label>
+            <Input
+              value={form.slug}
+              onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
+              placeholder="editco"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              BDA login URL will be <code>/{form.slug || 'company'}/bda</code>. Leave blank to derive from the company name.
+            </p>
           </FormField>
           <FormRow>
             <FormField>

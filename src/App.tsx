@@ -7,6 +7,8 @@ import HomePage from '@/pages/home/page';
 import LoginPage from '@/pages/login/page';
 import RegisterPage from '@/pages/register/page';
 import SuperAdminPage from '@/pages/super-admin/page';
+import { useAuthStore } from '@/stores/auth';
+import { bdaBasePath } from '@/lib/bda-path';
 import AutomationPage from '@/pages/automation/page';
 import CallingPage from '@/pages/calling/page';
 import CrmPage from '@/pages/crm/page';
@@ -51,6 +53,15 @@ import { SalesPhonePage } from '@/components/sales/phone-companion';
 function LegacyAdminRedirect() {
   const { pathname, search } = useLocation();
   return <Navigate to={`${PLATFORM_ADMIN_PATH}${pathname.slice('/admin'.length)}${search}`} replace />;
+}
+
+/** Old `/bda/*` URLs → `/{companySlug}/bda/*`. */
+function LegacyBdaRedirect() {
+  const { pathname, search } = useLocation();
+  const slug = useAuthStore((s) => s.organization?.slug);
+  if (!slug) return <Navigate to="/login" replace />;
+  const rest = pathname === '/bda' ? '' : pathname.slice('/bda'.length);
+  return <Navigate to={`${bdaBasePath(slug)}${rest}${search}`} replace />;
 }
 
 export default function App() {
@@ -179,8 +190,9 @@ export default function App() {
         <Route path="/settings/industries" element={<IndustriesPage />} />
       </Route>
 
-      <Route path="/bda" element={<BdaLayout />}>
-        <Route element={<SalesCrmLayout basePath="/bda" />}>
+      <Route path="/bda/*" element={<LegacyBdaRedirect />} />
+      <Route path="/:orgSlug/bda" element={<BdaLayout />}>
+        <Route element={<SalesCrmLayout basePath="dynamic-bda" />}>
           <Route index element={<SalesMyDayPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="dashboard" element={<SalesDashboardPage />} />

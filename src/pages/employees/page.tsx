@@ -19,8 +19,9 @@ import { formatDate, getInitials } from '@/lib/utils';
 import type { OrgUser } from '@/types';
 
 export default function EmployeesPage() {
-  const { user } = useAuthStore();
+  const { user, organization } = useAuthStore();
   const isCompanyAdmin = user?.role === 'admin';
+  const bdaLoginPath = `/${organization?.slug || 'company'}/bda`;
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ email: '', password: '', firstName: '', lastName: '', role: 'sales', department: '' });
   const queryClient = useQueryClient();
@@ -104,10 +105,12 @@ export default function EmployeesPage() {
       <SimpleModal open={showNew} onClose={() => setShowNew(false)} title="Add Employee Login">
         <FormStack>
           <p className="text-sm text-muted-foreground mb-2">
-            Create login credentials for a team member. They sign in at /login.
+            Create login credentials for a team member. Agency roles sign in at <code className="text-xs">/login</code>.
             {form.role === 'sales' && (
               <span className="mt-2 block rounded-md border border-hairline bg-surface-soft px-3 py-2 text-foreground">
-                <strong>BDA portal:</strong> sales employees get a dedicated LeadSquared-style workspace at <code className="text-xs">/bda</code> (leads, calls, follow-ups, deals). They will not see Finance, Ops, or other agency modules.
+                <strong>BDA portal:</strong> sales employees use your company URL{' '}
+                <code className="text-xs">{bdaLoginPath}</code>
+                {' '}(branded login + leads, calls, follow-ups, deals). They will not see Finance, Ops, or other agency modules.
               </span>
             )}
           </p>

@@ -8,7 +8,7 @@ import { CompanyMark } from '@/components/company/company-mark';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { BDA_NAV_SECTIONS, bdaItemVisible } from '@/lib/bda-nav';
+import { BDA_NAV_SECTIONS, bdaHref, bdaItemVisible } from '@/lib/bda-nav';
 import { ActivityTracker } from '@/components/shared/activity-tracker';
 import { AnimatedPage } from '@/components/shared/motion';
 import { useQuery } from '@tanstack/react-query';
@@ -19,9 +19,11 @@ interface BdaShellProps {
   modules: Record<string, boolean>;
   employeeCode?: string;
   displayName: string;
+  basePath: string;
+  orgSlug: string;
 }
 
-export function BdaShell({ children, modules, employeeCode, displayName }: BdaShellProps) {
+export function BdaShell({ children, modules, employeeCode, displayName, basePath, orgSlug }: BdaShellProps) {
   const { organization, logout } = useAuthStore();
   const { sidebarCollapsed, setSidebarCollapsed } = useUIStore();
   const navigate = useNavigate();
@@ -41,9 +43,11 @@ export function BdaShell({ children, modules, employeeCode, displayName }: BdaSh
     () =>
       BDA_NAV_SECTIONS.map((s) => ({
         ...s,
-        items: s.items.filter((i) => bdaItemVisible(i, modules)),
+        items: s.items
+          .filter((i) => bdaItemVisible(i, modules))
+          .map((i) => ({ ...i, href: bdaHref(orgSlug, i.to) })),
       })).filter((s) => s.items.length > 0),
-    [modules]
+    [modules, orgSlug]
   );
 
   const { data: notifData } = useQuery({
@@ -54,6 +58,7 @@ export function BdaShell({ children, modules, employeeCode, displayName }: BdaSh
   const unread = notifData?.data?.count || 0;
 
   const closeMobile = () => setMobileOpen(false);
+  const loginPath = `/${orgSlug}/bda`;
 
   const sidebar = (
     <aside
@@ -94,7 +99,7 @@ export function BdaShell({ children, modules, employeeCode, displayName }: BdaSh
                   <NavLink
                     key={item.href}
                     to={item.href}
-                    end={item.href === '/bda'}
+                    end={item.href === basePath}
                     onClick={closeMobile}
                     className={({ isActive }) =>
                       cn(
@@ -135,7 +140,7 @@ export function BdaShell({ children, modules, employeeCode, displayName }: BdaSh
           className={cn('w-full border-black/10 bg-white/70 hover:bg-white', sidebarCollapsed && 'px-0')}
           onClick={() => {
             logout();
-            navigate('/login');
+            navigate(loginPath);
           }}
         >
           <LogOut className="h-4 w-4" />
@@ -172,12 +177,15 @@ export function BdaShell({ children, modules, employeeCode, displayName }: BdaSh
         <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileOpen(true)}>
           <Menu className="h-5 w-5" />
         </Button>
-        <div className="min-w-0">
-          <p className="truncate font-display text-base font-semibold tracking-tight sm:text-lg">Your sales workspace</p>
-          <p className="truncate text-xs text-muted-foreground">Leads, deals, and follow-ups assigned to you</p>
+        <div className="flex min-w-0 items-center gap-3">
+          <CompanyMark name={orgName} logo={organization?.logo} className="hidden h-9 w-9 border shadow-sm sm:flex" />
+          <div className="min-w-0">
+            <p className="truncate font-display text-base font-semibold tracking-tight sm:text-lg">{orgName}</p>
+            <p className="truncate text-xs text-muted-foreground">BDA workspace · leads, deals, and follow-ups</p>
+          </div>
         </div>
         <Link
-          to="/bda/notifications"
+          to={`${basePath}/notifications`}
           className="relative ml-auto inline-flex h-10 w-10 items-center justify-center rounded-lg border border-black/[0.06] bg-white/70 text-muted-foreground shadow-sm backdrop-blur transition hover:border-black/10 hover:bg-white hover:text-foreground"
           title="Notifications"
         >

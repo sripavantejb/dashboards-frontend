@@ -238,7 +238,7 @@ function SalesNavGroup({
 
 function SalesCrmNav({ me, basePath }: { me: SalesMe; basePath: string }) {
   const visible = useMemo(
-    () => TABS.filter((t) => t.show(me) && !(basePath === '/bda' && ['team', 'territories', 'analytics'].includes(t.to))),
+    () => TABS.filter((t) => t.show(me) && !(basePath.includes('/bda') && ['team', 'territories', 'analytics'].includes(t.to))),
     [me, basePath]
   );
   const byKey = useMemo(() => Object.fromEntries(visible.map((t) => [t.to, t])), [visible]);
@@ -263,7 +263,10 @@ function SalesCrmNav({ me, basePath }: { me: SalesMe; basePath: string }) {
   );
 }
 
-export function SalesCrmLayout({ basePath = '/sales-crm' }: { basePath?: string }) {
+export function SalesCrmLayout({ basePath: basePathProp = '/sales-crm' }: { basePath?: string }) {
+  const { orgSlug } = useParams<{ orgSlug?: string }>();
+  const basePath = basePathProp === 'dynamic-bda' && orgSlug ? `/${orgSlug}/bda` : basePathProp;
+  const isBdaPortal = basePath.includes('/bda');
   const q = useQuery({ queryKey: ['sales', '/me'], queryFn: () => api.data<Omit<SalesMe, 'basePath'>>('/sales-crm/me'), retry: false });
   if (q.isError) {
     return (
@@ -277,13 +280,13 @@ export function SalesCrmLayout({ basePath = '/sales-crm' }: { basePath?: string 
   const me = { ...q.data, basePath };
   return (
     <>
-      {basePath !== '/bda' && (
+      {!isBdaPortal && (
         <PageHeader
           title="Sales CRM"
           description={`${me.name} · ${me.employee.employeeCode}${me.isSalesAdmin ? ' · Sales admin' : ''}`}
         />
       )}
-      {basePath !== '/bda' && <SalesCrmNav me={me} basePath={basePath} />}
+      {!isBdaPortal && <SalesCrmNav me={me} basePath={basePath} />}
       <div className="flex flex-col gap-6">
         <Outlet context={me} />
       </div>
@@ -1451,7 +1454,7 @@ export function SalesTeamPage() {
       </Query>
       <FormModal open={open} onClose={() => setOpen(false)} title="Add BDA / sales employee" initial={{ department: 'Sales' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)} fields={[
         { name: 'name', label: 'Full name', required: true }, { name: 'email', label: 'Email', type: 'email', required: true },
-        { name: 'password', label: 'Password', type: 'password', help: 'Required for a new login (min 8 characters). New sales employees open the BDA portal at /bda after login.' },
+        { name: 'password', label: 'Password', type: 'password', help: 'Required for a new login (min 8 characters). New sales employees open the company BDA portal at /{company-slug}/bda after login.' },
         { name: 'phone', label: 'Phone' }, { name: 'department', label: 'Department' }, { name: 'team', label: 'Team' }, { name: 'territory', label: 'Territory' },
         { name: 'isSalesAdmin', label: 'Sales admin (full ERP Sales CRM — not BDA-only)', type: 'checkbox' },
       ]} />

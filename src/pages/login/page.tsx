@@ -45,7 +45,7 @@ export default function LoginPage() {
           response.data.refreshToken
         );
         toast.success('Welcome back!');
-        const home = await resolvePostLoginPath(response.data.user.role);
+        const home = await resolvePostLoginPath(response.data.user.role, response.data.organization?.slug);
         navigate(home);
       } else {
         toast.error(response.error?.message || 'Login failed');

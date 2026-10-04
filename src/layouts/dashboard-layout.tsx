@@ -5,20 +5,27 @@ import { AppShell } from '@/components/layout/app-shell';
 import { PageContainer } from '@/components/layout/page-layout';
 import { PageLoading } from '@/components/shared/page-states';
 import { api } from '@/lib/api';
+import { bdaBasePath } from '@/lib/bda-path';
 import { useAuthStore } from '@/stores/auth';
 import type { Organization } from '@/types';
 
-/** Agency ERP shell — BDAs (non–sales-admin SalesEmployees) are redirected to /bda. */
+/** Agency ERP shell — BDAs (non–sales-admin SalesEmployees) are redirected to /{slug}/bda. */
 export default function DashboardLayout() {
   const navigate = useNavigate();
-  const { isAuthenticated, updateOrganization } = useAuthStore();
+  const { isAuthenticated, organization, updateOrganization } = useAuthStore();
   const { data } = useQuery({
     queryKey: ['session-organization'],
     queryFn: () => api.data<{ organization: Organization | null }>('/auth/me'),
     staleTime: 5 * 60_000,
   });
   useEffect(() => {
-    if (data?.organization) updateOrganization({ name: data.organization.name, logo: data.organization.logo });
+    if (data?.organization) {
+      updateOrganization({
+        name: data.organization.name,
+        logo: data.organization.logo,
+        slug: data.organization.slug,
+      });
+    }
   }, [data, updateOrganization]);
 
   const salesMe = useQuery({
@@ -32,9 +39,10 @@ export default function DashboardLayout() {
   useEffect(() => {
     if (!salesMe.isFetched || salesMe.isError || !salesMe.data) return;
     if (!salesMe.data.isSalesAdmin) {
-      navigate('/bda', { replace: true });
+      const slug = organization?.slug || data?.organization?.slug;
+      navigate(bdaBasePath(slug), { replace: true });
     }
-  }, [salesMe.isFetched, salesMe.isError, salesMe.data, navigate]);
+  }, [salesMe.isFetched, salesMe.isError, salesMe.data, navigate, organization?.slug, data?.organization?.slug]);
 
   if (salesMe.isLoading) return <PageLoading />;
   if (salesMe.data && !salesMe.data.isSalesAdmin) return null;
