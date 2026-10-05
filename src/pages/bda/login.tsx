@@ -73,9 +73,16 @@ export default function BdaLoginPage() {
 
   if (brand.isLoading) return <PageLoading />;
   if (brand.isError || !brand.data) {
+    const msg = (brand.error as Error | undefined)?.message || '';
+    const isDb = /database|unavailable|connect/i.test(msg);
     return (
       <div className="flex min-h-screen items-center justify-center p-6">
-        <PageError message="This company BDA portal was not found or is inactive." onRetry={() => brand.refetch()} />
+        <PageError
+          message={isDb
+            ? 'The BDA portal is temporarily unavailable. Please try again in a moment.'
+            : 'This company BDA portal was not found or is inactive.'}
+          onRetry={() => brand.refetch()}
+        />
       </div>
     );
   }
