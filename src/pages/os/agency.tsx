@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router';
+import { useLocation, useSearchParams } from 'react-router';
 import { Download, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/permissions';
+import { useAuthStore } from '@/stores/auth';
 import { PageHeader } from '@/components/layout/page-header';
 import { FormActions, FormField, FormRow, FormStack, PageGrid } from '@/components/layout/page-layout';
 import { Button } from '@/components/ui/button';
@@ -192,12 +193,19 @@ export function ContentCalendarPage() {
 export function LeavePage() {
   const qc = useQueryClient();
   const can = useCan();
+  const role = useAuthStore((s) => s.user?.role);
+  const { pathname } = useLocation();
+  const inBda = pathname.includes('/bda');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ type: 'casual', startDate: '', endDate: '', reason: '' });
   const { data = [], isLoading, isError, refetch } = useQuery({ queryKey: ['leave'], queryFn: () => api.data<Any[]>('/leave') });
   const create = useMutation({
     mutationFn: () => api.data('/leave', 'POST', form),
-    onSuccess: () => { toast.success('Leave requested'); setOpen(false); qc.invalidateQueries({ queryKey: ['leave'] }); },
+    onSuccess: () => {
+      toast.success(inBda ? 'Leave sent to your admin for approval' : 'Leave requested');
+      setOpen(false);
+      qc.invalidateQueries({ queryKey: ['leave'] });
+    },
     onError: onErr,
   });
   const decide = useMutation({
@@ -205,26 +213,34 @@ export function LeavePage() {
     onSuccess: () => { toast.success('Updated'); qc.invalidateQueries({ queryKey: ['leave'] }); },
     onError: onErr,
   });
-  const canReview = can('leaves:*') || can('*');
+  const canReview = !inBda && (can('leaves:*') || can('*'));
+  const canRequest = can('leaves:write') || (inBda && role === 'sales');
   if (isError) return <PageError onRetry={() => refetch()} />;
   return (
     <>
-      <PageHeader title="Leave" description="Request time off. Managers approve here. Sales attendance can note when someone is away."
-        action={can('leaves:write') && <Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Request leave</Button>} />
+      <PageHeader
+        title="Leave"
+        description={
+          inBda
+            ? 'Request time off from your BDA portal. Your company admin reviews and approves in Leave.'
+            : 'Approve BDA and team leave requests here. Everyone can also request their own time off.'
+        }
+        action={canRequest && <Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Request leave</Button>}
+      />
       {isLoading ? <PageLoading /> : (
-        <DataTable rows={data as Row[]} empty="No leave requests. Ask for time off here instead of chat."
+        <DataTable rows={data as Row[]} empty={inBda ? 'No leave requests yet. Submit one when you need time off.' : 'No leave requests. BDAs and staff ask for time off here.'}
           columns={[
             { key: 'employeeName', header: 'Person', render: (r) => r.employeeName || '—' },
             { key: 'type', header: 'Type', render: (r) => humanize(r.type) },
             { key: 'dates', header: 'Dates', render: (r) => `${fmtDate(r.startDate)} – ${fmtDate(r.endDate)} (${r.days}d)` },
             { key: 'reason', header: 'Reason', render: (r) => r.reason || '—' },
             { key: 'status', header: 'Status', render: (r) => <StatusPill value={r.status} /> },
-            { key: 'x', header: '', className: 'w-px', render: (r) => r.status === 'pending' && canReview && (
+            { key: 'x', header: '', className: 'w-px', render: (r) => r.status === 'pending' && canReview ? (
               <div className="flex gap-1">
                 <Button size="sm" onClick={() => decide.mutate({ id: r._id, status: 'approved' })}>Approve</Button>
                 <Button size="sm" variant="outline" onClick={() => decide.mutate({ id: r._id, status: 'rejected' })}>Reject</Button>
               </div>
-            ) },
+            ) : null },
           ]} />
       )}
       <SimpleModal open={open} onClose={() => setOpen(false)} title="Request leave">

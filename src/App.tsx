@@ -214,6 +214,7 @@ export default function App() {
           <Route path="calendar" element={<SalesCalendarPage />} />
           <Route path="approvals" element={<SalesApprovalsPage />} />
           <Route path="attendance" element={<SalesAttendancePage />} />
+          <Route path="leave" element={<LeavePage />} />
           <Route path="work-status" element={<SalesWorkStatusPage />} />
           <Route path="targets" element={<SalesTargetsPage />} />
           <Route path="performance" element={<SalesPerformancePage />} />

@@ -7,7 +7,7 @@ import { PageLoading } from '@/components/shared/page-states';
 import { api } from '@/lib/api';
 import { bdaBasePath } from '@/lib/bda-path';
 import { useAuthStore } from '@/stores/auth';
-import type { Organization } from '@/types';
+import type { Organization, UserRole } from '@/types';
 import BdaLoginPage from '@/pages/bda/login';
 
 type SalesMe = {
@@ -21,12 +21,12 @@ type SalesMe = {
 export default function BdaLayout() {
   const navigate = useNavigate();
   const { orgSlug = '' } = useParams<{ orgSlug: string }>();
-  const { isAuthenticated, hasHydrated, user, organization, updateOrganization } = useAuthStore();
+  const { isAuthenticated, hasHydrated, user, organization, updateOrganization, updateUser } = useAuthStore();
   const basePath = bdaBasePath(orgSlug);
 
   const sessionOrg = useQuery({
     queryKey: ['session-organization'],
-    queryFn: () => api.data<{ organization: Organization | null }>('/auth/me'),
+    queryFn: () => api.data<{ organization: Organization | null; permissions?: string[]; role?: string }>('/auth/me'),
     staleTime: 5 * 60_000,
     enabled: isAuthenticated,
   });
@@ -36,7 +36,13 @@ export default function BdaLayout() {
       const org = sessionOrg.data.organization;
       updateOrganization({ name: org.name, logo: org.logo, slug: org.slug });
     }
-  }, [sessionOrg.data, updateOrganization]);
+    if (sessionOrg.data?.permissions) {
+      updateUser({
+        permissions: sessionOrg.data.permissions,
+        ...(sessionOrg.data.role ? { role: sessionOrg.data.role as UserRole } : {}),
+      });
+    }
+  }, [sessionOrg.data, updateOrganization, updateUser]);
 
   useEffect(() => {
     if (!hasHydrated || !isAuthenticated) return;

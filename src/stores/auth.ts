@@ -15,6 +15,7 @@ interface AuthState {
   ) => void;
   logout: () => void;
   updateOrganization: (patch: Partial<Organization>) => void;
+  updateUser: (patch: Partial<User>) => void;
   setHasHydrated: (value: boolean) => void;
 }
 
@@ -33,6 +34,7 @@ export const useAuthStore = create<AuthState>()(
         set({ user, organization, isAuthenticated: true });
       },
       updateOrganization: (patch) => set((s) => (s.organization ? { organization: { ...s.organization, ...patch } } : {})),
+      updateUser: (patch) => set((s) => (s.user ? { user: { ...s.user, ...patch } } : {})),
       logout: () => {
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');

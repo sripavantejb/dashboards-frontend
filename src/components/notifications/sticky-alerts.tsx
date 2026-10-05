@@ -2,17 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
 import { X } from 'lucide-react';
 import { api } from '@/lib/api';
-import { bdaBasePath } from '@/lib/bda-path';
+import { portalHref } from '@/lib/portal-href';
 import { Button } from '@/components/ui/button';
 import type { Notification } from '@/types';
-
-function portalHref(href: string | undefined, orgSlug?: string) {
-  if (!href) return '';
-  const prefix = bdaBasePath(orgSlug);
-  if (href.startsWith('/sales-crm')) return href.replace(/^\/sales-crm/, prefix);
-  if (href === '/bda' || href.startsWith('/bda/')) return href.replace(/^\/bda/, prefix);
-  return href;
-}
 
 /** Persistent popups for BDA (and other) assignees — stay until the X is clicked. */
 export function StickyAlerts({ orgSlug }: { orgSlug?: string }) {

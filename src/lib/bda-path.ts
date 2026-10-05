@@ -7,3 +7,5 @@ export function bdaBasePath(orgSlug?: string | null) {
 export function isBdaPortalPath(pathname: string) {
   return pathname === '/bda' || pathname.startsWith('/bda/') || /\/bda(\/|$)/.test(pathname);
 }
+
+export { portalHref, leadHref, leadIdOf } from '@/lib/portal-href';

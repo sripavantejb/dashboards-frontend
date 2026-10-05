@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, Kanban, Building2, Phone, Smartphone, CalendarDays, ListTodo,
   FileText, CheckSquare, Target, Trophy, ClipboardList, MessageSquare,
-  Clock, BarChart3, Bell, type LucideIcon,
+  Clock, BarChart3, Bell, Umbrella, type LucideIcon,
 } from 'lucide-react';
 import { bdaBasePath } from '@/lib/bda-path';
 
@@ -71,6 +71,7 @@ export const BDA_NAV_SECTIONS: BdaNavSection[] = [
       { name: 'Leaderboard', to: 'leaderboard', icon: Trophy, module: 'perf.leaderboard' },
       { name: 'Work status', to: 'work-status', icon: ClipboardList, module: 'perf.daily_work_status' },
       { name: 'Attendance', to: 'attendance', icon: Clock },
+      { name: 'Leave', to: 'leave', icon: Umbrella },
     ],
   },
 ];

@@ -1,16 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { api } from '@/lib/api';
 import { PageHeader } from '@/components/layout/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PageError, PageLoading } from '@/components/shared/page-states';
 import { formatDate } from '@/lib/utils';
+import { portalHref } from '@/lib/portal-href';
+import { useAuthStore } from '@/stores/auth';
 import type { Notification } from '@/types';
 
 /** Shared inbox for ERP and BDA — opens the deep link when present. */
 export default function NotificationsPage() {
   const navigate = useNavigate();
+  const { orgSlug } = useParams<{ orgSlug?: string }>();
+  const organization = useAuthStore((s) => s.organization);
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -38,7 +42,7 @@ export default function NotificationsPage() {
 
   const openNotif = (notif: Notification) => {
     if (!notif.read) markRead.mutate(notif._id);
-    const href = notif.metadata?.href;
+    const href = portalHref(notif.metadata?.href, orgSlug || organization?.slug);
     if (href) navigate(href);
   };
 

@@ -16,6 +16,7 @@ import { PageError, PageLoading } from '@/components/shared/page-states';
 import { FieldInput, type FieldDef } from '@/components/shared/resource-page';
 import { DataTable, KeyValue, ProgressBar, SectionCard, Select, StatCard, StatusPill, Textarea, fmtDate, fmtDateTime, humanize, inr, stageSelectClass, type Column } from '@/components/shared/os-ui';
 import { CALL_OUTCOMES, formatStoredDuration } from '@/lib/calling';
+import { leadHref, leadIdOf } from '@/lib/portal-href';
 import { CallAnalytics } from '@/components/sales/call-analytics';
 import { CheckoutModal } from '@/components/sales/checkout-modal';
 import { CallHistory, LeadCallProvider, useLeadCall } from '@/components/sales/lead-call';
@@ -87,14 +88,29 @@ function useSalesAction<V = unknown>(fn: (v: V) => Promise<unknown>, success?: s
   });
 }
 
-function useLeadRowAction<V extends { id: string }>(fn: (v: V) => Promise<unknown>, success: string, patchFor: (v: V) => Record<string, unknown>) {
+const RELATED_SALES = ['/leads', '/calls', '/follow-ups', '/deals', '/customers', '/dashboard', '/my-day', '/activity', '/meetings', '/messages', '/stage-targets', '/targets'];
+
+function invalidateRelatedSales(qc: ReturnType<typeof useQueryClient>, extra: string[] = []) {
+  const paths = [...RELATED_SALES, ...extra];
+  void qc.invalidateQueries({
+    predicate: (q) => q.queryKey[0] === 'sales' && paths.some((p) => {
+      const key = String(q.queryKey[1] || '');
+      return key === p || key.startsWith(`${p}?`) || key.startsWith(`${p}/`);
+    }),
+  });
+}
+
+function useLeadRowAction<V extends { id: string }>(fn: (v: V) => Promise<unknown>, success: string, patchFor: (v: V) => Record<string, unknown>, related = true) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,
     onMutate: (v) => {
       patchLeadRows(qc, v.id, patchFor(v));
     },
-    onSuccess: () => toast.success(success),
+    onSuccess: () => {
+      toast.success(success);
+      if (related) invalidateRelatedSales(qc);
+    },
     onError: (e) => {
       onErr(e);
       void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'sales' && isLeadsQuery(q.queryKey[1]) });
@@ -541,17 +557,33 @@ export function SalesDashboardPage() {
           </PageGrid>
           <CallAnalytics data={d.callAnalytics} />
           <PageGrid cols="2">
-            <SectionCard title={`Follow-ups due (${d.stats.followUpsDue})`}>
-              <SimpleList rows={d.followUps} empty="Nothing due today." render={(f) => <><span>{f.notes || humanize(f.type)}</span><span className="text-xs text-muted-foreground">{fmtDateTime(f.dueAt)}</span></>} />
+            <SectionCard title={`Follow-ups due (${d.stats.followUpsDue})`} action={<Link className="text-xs hover:underline" to={`${basePath}/follow-ups`}>View all</Link>}>
+              <SimpleList rows={d.followUps} empty="Nothing due today." render={(f) => {
+                const lid = leadIdOf(f);
+                return (
+                  <>
+                    {lid ? <Link className="hover:underline" to={leadHref(basePath, lid)}>{f.notes || humanize(f.type)}</Link> : <span>{f.notes || humanize(f.type)}</span>}
+                    <span className="text-xs text-muted-foreground">{fmtDateTime(f.dueAt)}</span>
+                  </>
+                );
+              }} />
             </SectionCard>
-            <SectionCard title="Upcoming meetings">
-              <SimpleList rows={d.meetings} empty="No meetings scheduled." render={(m) => <><span>{m.title}</span><span className="text-xs text-muted-foreground">{fmtDateTime(m.startsAt)}</span></>} />
+            <SectionCard title="Upcoming meetings" action={<Link className="text-xs hover:underline" to={`${basePath}/meetings`}>View all</Link>}>
+              <SimpleList rows={d.meetings} empty="No meetings scheduled." render={(m) => {
+                const lid = leadIdOf(m);
+                return (
+                  <>
+                    {lid ? <Link className="hover:underline" to={leadHref(basePath, lid)}>{m.title}</Link> : <span>{m.title}</span>}
+                    <span className="text-xs text-muted-foreground">{fmtDateTime(m.startsAt)}</span>
+                  </>
+                );
+              }} />
             </SectionCard>
-            <SectionCard title="Open tasks">
+            <SectionCard title="Open tasks" action={<Link className="text-xs hover:underline" to={`${basePath}/tasks`}>View all</Link>}>
               <SimpleList rows={d.tasks} empty="No open tasks." render={(t) => <><span>{t.title}</span><span className="text-xs text-muted-foreground">{fmtDate(t.dueDate)}</span></>} />
             </SectionCard>
-            <SectionCard title="Recent leads">
-              <SimpleList rows={d.recentLeads} empty="No leads yet." render={(l) => <><Link className="hover:underline" to={`${basePath}/leads/${l._id}`}>{leadLabel(l)}</Link><StatusPill value={l.status} /></>} />
+            <SectionCard title="Recent leads" action={<Link className="text-xs hover:underline" to={`${basePath}/leads`}>Inbox</Link>}>
+              <SimpleList rows={d.recentLeads} empty="No leads yet." render={(l) => <><Link className="hover:underline" to={leadHref(basePath, l._id)}>{leadLabel(l)}</Link><StatusPill value={l.status} /></>} />
             </SectionCard>
           </PageGrid>
         </>
@@ -582,6 +614,7 @@ const LEAD_FIELDS: FieldDef[] = [
 
 export function SalesLeadsPage() {
   const me = useMe();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const drawer = isBdaPortal(me.basePath);
   const selectedId = searchParams.get('lead');
@@ -629,7 +662,10 @@ export function SalesLeadsPage() {
         Array.isArray(old) ? old.map((d: Any) => (d._id === v.id ? { ...d, stage: v.stage } : d)) : old
       ));
     },
-    onSuccess: () => toast.success('Deal stage updated'),
+    onSuccess: (_r, v) => {
+      toast.success(v.stage === 'won' ? 'Deal won — customer created' : 'Deal stage updated');
+      invalidateRelatedSales(qc);
+    },
     onError: onErr,
   });
   const startDeal = useMutation({
@@ -639,13 +675,39 @@ export function SalesLeadsPage() {
       return { ...created, stage: v.stage || created.stage, leadId: v.leadId };
     },
     onSuccess: (created) => {
-      toast.success('Deal stage updated');
+      toast.success(created.stage === 'won' ? 'Deal won — customer created' : 'Deal stage updated');
       qc.setQueriesData({ predicate: (q) => q.queryKey[0] === 'sales' && String(q.queryKey[1] || '').startsWith('/deals') }, (old: unknown) => (
         Array.isArray(old) ? [created, ...old] : old
       ));
+      invalidateRelatedSales(qc);
     },
     onError: onErr,
   });
+  const removeLead = useMutation({
+    mutationFn: (id: string) => api.data(`/sales-crm/leads/${id}`, 'DELETE'),
+    onMutate: (id) => {
+      qc.setQueriesData({ predicate: (q) => q.queryKey[0] === 'sales' && isLeadsQuery(q.queryKey[1]) }, (old: unknown) => (
+        Array.isArray(old) ? old.filter((row: Any) => row._id !== id) : old
+      ));
+      if (selectedId === id) setSearchParams({});
+      if (callingLead?._id === id) setCallingLead(null);
+    },
+    onSuccess: () => {
+      toast.success('Lead deleted');
+      invalidateRelatedSales(qc);
+    },
+    onError: (e) => {
+      onErr(e);
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'sales' && isLeadsQuery(q.queryKey[1]) });
+    },
+  });
+  const openLead = (id: string) => {
+    if (!drawer) {
+      navigate(`${me.basePath}/leads/${id}`);
+      return;
+    }
+    setSearchParams({ lead: id });
+  };
   const activeFilters = [
     filter.status !== 'all', filter.temperature, filter.source, filter.priority, filter.datePreset !== 'all',
     filter.followUp, filter.dealStage, filter.assignedEmployeeId, filter.unassigned, filter.search,
@@ -753,13 +815,18 @@ export function SalesLeadsPage() {
       </div>
       <Query q={q}>
         {(rows) => (
-          <DataTable rows={rows} selectedId={selectedId || undefined} compact empty="No leads match."
+          <DataTable
+            rows={rows}
+            selectedId={selectedId || undefined}
+            compact
+            empty="No leads match."
+            onRowClick={(r) => openLead(r._id)}
             columns={[
               { key: 'contactPerson', header: 'Lead', render: (r) => (
-                <div>
-                  <p className="font-medium">{r.contactPerson}</p>
+                <button type="button" className="min-w-0 text-left" onClick={(e) => { e.stopPropagation(); openLead(r._id); }}>
+                  <p className="font-medium hover:underline">{r.contactPerson}</p>
                   <p className="text-xs text-muted-foreground">{r.company || r.phone || '—'}</p>
-                </div>
+                </button>
               ) },
               { key: 'status', header: 'Status', className: 'w-px', render: (r) => (
                 <StageSelect value={r.status} options={LEAD_STATUSES} onChange={(status) => setStatus.mutate({ id: r._id, status })} />
@@ -830,6 +897,24 @@ export function SalesLeadsPage() {
                 ),
               }] : []),
               ...(me.isSalesAdmin ? [{ key: 'assignedName', header: 'Owner', render: (r: Any) => r.assignedName || <span className="text-amber-600">Unassigned</span> }] : []),
+              { key: 'actions', header: '', className: 'w-px', render: (r) => (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 shrink-0 px-0 text-error hover:bg-error/10 hover:text-error"
+                  title="Delete lead"
+                  aria-label={`Delete ${r.contactPerson}`}
+                  disabled={removeLead.isPending}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!confirm(`Delete lead “${r.contactPerson}”?`)) return;
+                    removeLead.mutate(r._id);
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              ) },
             ] as Column<Any>[]} />
         )}
       </Query>
@@ -882,7 +967,7 @@ function LeadInspector({ id, onClose }: { id: string; onClose?: () => void }) {
   const followup = useSalesAction((v: Any) => post('/follow-ups', { ...v, leadId: id }), 'Follow-up scheduled', close);
   const meeting = useSalesAction((v: Any) => post('/meetings', { ...v, leadId: id }), 'Meeting scheduled', close);
   const deal = useSalesAction((v: Any) => post('/deals', { ...v, leadId: id }), 'Deal created', (r) => navigate(`${basePath}/deals/${r._id}`));
-  const archive = useSalesAction(() => api.data(`/sales-crm/leads/${id}`, 'DELETE'), 'Lead archived', () => {
+  const archive = useSalesAction(() => api.data(`/sales-crm/leads/${id}`, 'DELETE'), 'Lead deleted', () => {
     onClose?.();
     if (!onClose) navigate(`${basePath}/leads`);
   });
@@ -918,15 +1003,21 @@ function LeadInspector({ id, onClose }: { id: string; onClose?: () => void }) {
               </Select>
             )}
             <Button variant="outline" size="sm" onClick={() => setModal('edit')}>Edit</Button>
-            <Button variant="ghost" size="sm" className="text-error" onClick={() => confirm('Archive this lead?') && archive.mutate(undefined)}><Trash2 className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="sm" className="text-error" title="Delete lead" onClick={() => confirm(`Delete lead “${lead.contactPerson}”?`) && archive.mutate(undefined)}><Trash2 className="h-4 w-4" /></Button>
           </div>
           <div className="flex flex-wrap gap-2">
             {me.modules['comm.calls'] && <Button size="sm" variant="outline" onClick={() => setModal('call')}><Phone className="mr-1.5 h-3.5 w-3.5" />Log call</Button>}
             {me.modules['comm.followups'] && <Button size="sm" variant="outline" onClick={() => setModal('followup')}>Schedule follow-up</Button>}
             {me.modules['comm.meetings'] && <Button size="sm" variant="outline" onClick={() => setModal('meeting')}>Schedule meeting</Button>}
-            {me.modules['comm.email_whatsapp'] && <Button size="sm" variant="outline" asChild><Link to={`${basePath}/messages`}>Email / WhatsApp</Link></Button>}
+            {me.modules['comm.email_whatsapp'] && <Button size="sm" variant="outline" asChild><Link to={`${basePath}/messages?lead=${id}`}>Email / WhatsApp</Link></Button>}
             {me.modules['leads.qualification'] && <Button size="sm" variant="outline" onClick={() => setModal('qual')}>Qualification</Button>}
             {me.modules['sales.deals'] && <Button size="sm" onClick={() => setModal('deal')}>Create deal</Button>}
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+            {me.modules['comm.calls'] && <Link className="text-primary hover:underline" to={`${basePath}/calls?lead=${id}`}>All calls →</Link>}
+            {me.modules['comm.followups'] && <Link className="text-primary hover:underline" to={`${basePath}/follow-ups?lead=${id}`}>All follow-ups →</Link>}
+            {me.modules['sales.deals'] && <Link className="text-primary hover:underline" to={`${basePath}/deals?lead=${id}`}>Deals for this lead →</Link>}
+            {me.modules['comm.meetings'] && <Link className="text-primary hover:underline" to={`${basePath}/meetings?lead=${id}`}>Meetings →</Link>}
           </div>
           <SectionCard title="Details">
             <LeadPhoneRow phone={lead.phone} enabled={Boolean(me.modules['comm.calls'])} />
@@ -947,10 +1038,10 @@ function LeadInspector({ id, onClose }: { id: string; onClose?: () => void }) {
           <SectionCard title={`Deals (${deals.length})`}>
             <SimpleList rows={deals} empty="No deals yet." render={(d) => <><Link className="hover:underline" to={`${basePath}/deals/${d._id}`}>{d.dealName}</Link><span className="flex items-center gap-2">{inr(d.value)}<StatusPill value={d.stage} /></span></>} />
           </SectionCard>
-          <SectionCard title="Call History">
+          <SectionCard title="Call History" action={me.modules['comm.calls'] ? <Link className="text-xs hover:underline" to={`${basePath}/calls?lead=${id}`}>View all</Link> : undefined}>
             <CallHistory calls={calls} />
           </SectionCard>
-          <SectionCard title={`Follow-ups (${followUps.length})`}>
+          <SectionCard title={`Follow-ups (${followUps.length})`} action={me.modules['comm.followups'] ? <Link className="text-xs hover:underline" to={`${basePath}/follow-ups?lead=${id}`}>View all</Link> : undefined}>
             <SimpleList rows={followUps} empty="None scheduled." render={(f) => <><span>{f.notes || humanize(f.type)}</span><span className="flex items-center gap-2 text-xs text-muted-foreground">{fmtDateTime(f.dueAt)}<StatusPill value={f.status} /></span></>} />
           </SectionCard>
           <SectionCard title={`Meetings (${meetings.length})`}>
@@ -1053,6 +1144,8 @@ export function SalesDealsPage() {
   const me = useMe();
   const basePath = me.basePath;
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const filterLead = searchParams.get('lead') || '';
   const [view, setView] = useState<'board' | 'list'>('board');
   const q = useSales<Any[]>('/deals?stage=all');
   const leads = useLeadOptions();
@@ -1063,9 +1156,12 @@ export function SalesDealsPage() {
     <>
       <PageHeader
         title="Deals"
-        description="Track every opportunity across your pipeline — from first contact to close."
+        description={filterLead ? 'Showing deals for one lead — clear the filter from the URL or open all deals from the sidebar.' : 'Track every opportunity across your pipeline — from first contact to close.'}
         action={
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            {filterLead && (
+              <Button variant="outline" size="sm" asChild><Link to={`${basePath}/leads?lead=${filterLead}`}>Back to lead</Link></Button>
+            )}
             <div className="inline-flex rounded-lg border border-black/10 bg-white/80 p-1 shadow-sm backdrop-blur">
               {([
                 { id: 'board' as const, icon: LayoutGrid, label: 'Board' },
@@ -1090,13 +1186,22 @@ export function SalesDealsPage() {
         }
       />
       <Query q={q}>
-        {(rows) => {
+        {(allRows) => {
+          const rows = filterLead ? allRows.filter((d) => leadIdOf(d) === filterLead) : allRows;
           const pipelineValue = rows.reduce((t, d) => t + (Number(d.value) || 0), 0);
           const openCount = rows.filter((d) => !['won', 'lost'].includes(d.stage)).length;
           return view === 'list' ? (
             <DataTable rows={rows} empty="No deals yet — create your first opportunity."
               columns={[
-                { key: 'dealName', header: 'Deal', render: (r) => <div><p className="font-medium">{r.dealName}</p><p className="text-xs text-muted-foreground">{leadLabel(r.leadId)}</p></div> },
+                { key: 'dealName', header: 'Deal', render: (r) => {
+                  const lid = leadIdOf(r);
+                  return (
+                    <div>
+                      <p className="font-medium">{r.dealName}</p>
+                      {lid ? <Link className="text-xs text-muted-foreground hover:underline" to={leadHref(basePath, lid)}>{leadLabel(r.leadId)}</Link> : <p className="text-xs text-muted-foreground">{leadLabel(r.leadId)}</p>}
+                    </div>
+                  );
+                } },
                 { key: 'value', header: 'Value', render: (r) => inr(r.value) },
                 { key: 'probability', header: 'Prob.', render: (r) => `${r.probability || 0}%` },
                 { key: 'stage', header: 'Stage', className: 'w-px', render: (r) => (
@@ -1165,7 +1270,11 @@ export function SalesDealsPage() {
                               <Link to={`${basePath}/deals/${d._id}`} className="block text-sm font-semibold tracking-tight text-foreground group-hover:underline">
                                 {d.dealName}
                               </Link>
-                              <p className="mt-1 truncate text-xs text-muted-foreground">{leadLabel(d.leadId)}</p>
+                              {leadIdOf(d) ? (
+                                <Link to={leadHref(basePath, leadIdOf(d))} className="mt-1 block truncate text-xs text-muted-foreground hover:underline">{leadLabel(d.leadId)}</Link>
+                              ) : (
+                                <p className="mt-1 truncate text-xs text-muted-foreground">{leadLabel(d.leadId)}</p>
+                              )}
                               <div className="mt-3 flex items-end justify-between gap-2">
                                 <div>
                                   <p className="font-display text-sm font-semibold tabular-nums">{inr(d.value)}</p>
@@ -1196,7 +1305,7 @@ export function SalesDealsPage() {
           );
         }}
       </Query>
-      <FormModal open={open} onClose={() => setOpen(false)} title="New deal" initial={{ probability: 10, priority: 'medium' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)}
+      <FormModal open={open} onClose={() => setOpen(false)} title="New deal" initial={{ probability: 10, priority: 'medium', ...(filterLead ? { leadId: filterLead } : {}) }} pending={create.isPending} onSubmit={(v) => create.mutate(v)}
         fields={[{ name: 'leadId', label: 'Lead', type: 'select', options: leads }, ...DEAL_FIELDS]} />
     </>
   );
@@ -1243,7 +1352,7 @@ export function SalesDealDetailPage() {
             <SectionCard title="Deal">
               <KeyValue items={[
                 ['Value', inr(deal.value)], ['Probability', `${deal.probability || 0}%`], ['Expected close', fmtDate(deal.expectedCloseDate)],
-                ['Priority', humanize(deal.priority)], ['Lead', lead ? <Link className="hover:underline" to={`${basePath}/leads/${lead._id}`}>{leadLabel(lead)}</Link> : '—'],
+                ['Priority', humanize(deal.priority)], ['Lead', lead ? <Link className="hover:underline" to={leadHref(basePath, lead._id)}>{leadLabel(lead)}</Link> : '—'],
                 ...(deal.closedAt ? [['Closed', fmtDate(deal.closedAt)], ['Final offer', inr(deal.finalOffer)]] as [string, React.ReactNode][] : []),
                 ...(deal.stage === 'lost' ? [['Lost reason', humanize(deal.lostReason)]] as [string, React.ReactNode][] : []),
                 ['Notes', deal.notes || '—'],
@@ -1304,6 +1413,7 @@ function CloseDealModal({ open, onClose, deal, onSubmit, pending }: { open: bool
 
 // ---------------------------------------------------------------- customers, calls, meetings, follow-ups
 export function SalesCustomersPage() {
+  const basePath = useMe().basePath;
   const q = useSales<Any[]>('/customers');
   return (
     <Query q={q}>
@@ -1312,6 +1422,7 @@ export function SalesCustomersPage() {
           columns={[
             { key: 'name', header: 'Customer', render: (r) => <div><p className="font-medium">{r.company || r.name}</p><p className="text-xs text-muted-foreground">{r.name}</p></div> },
             { key: 'contact', header: 'Contact', render: (r) => [r.email, r.phone].filter(Boolean).join(' · ') || '—' },
+            { key: 'sourceLeadId', header: 'Source lead', render: (r) => r.sourceLeadId ? <Link className="hover:underline" to={leadHref(basePath, String(r.sourceLeadId))}>Open lead</Link> : '—' },
             { key: 'city', header: 'City', render: (r) => r.city || '—' },
             { key: 'totalRevenue', header: 'Revenue', render: (r) => inr(r.totalRevenue) },
             { key: 'customerSince', header: 'Since', render: (r) => fmtDate(r.customerSince || r.createdAt) },
@@ -1323,25 +1434,43 @@ export function SalesCustomersPage() {
 
 export function SalesCallsPage() {
   const basePath = useMe().basePath;
+  const [searchParams] = useSearchParams();
+  const filterLead = searchParams.get('lead') || '';
+  const [view, setView] = useState<'all' | 'connected'>('all');
   const q = useSales<Any[]>('/calls');
   const leads = useLeadOptions();
   const [open, setOpen] = useState(false);
   const create = useSalesAction((v: Any) => post('/calls', v), 'Call logged', () => setOpen(false));
   return (
     <>
-      <div className="flex justify-end"><Button onClick={() => setOpen(true)}><Phone className="mr-2 h-4 w-4" />Log call</Button></div>
+      <div className="flex flex-wrap items-center gap-2">
+        {filterLead && <Button variant="outline" size="sm" asChild><Link to={leadHref(basePath, filterLead)}>Back to lead</Link></Button>}
+        <div className="inline-flex rounded-lg border p-0.5">
+          {(['all', 'connected'] as const).map((v) => (
+            <button key={v} type="button" onClick={() => setView(v)} className={cn('rounded-md px-3 py-1.5 text-sm', view === v ? 'bg-foreground text-background' : 'text-muted-foreground')}>
+              {v === 'all' ? 'All dialed' : 'Connected'}
+            </button>
+          ))}
+        </div>
+        <Button className="ml-auto" onClick={() => setOpen(true)}><Phone className="mr-2 h-4 w-4" />Log call</Button>
+      </div>
       <Query q={q}>
-        {(rows) => {
-          const connected = rows.filter((r) => r.outcome === 'connected');
+        {(allRows) => {
+          const scoped = filterLead ? allRows.filter((r) => leadIdOf(r) === filterLead) : allRows;
+          const connected = scoped.filter((r) => r.outcome === 'connected');
+          const rows = view === 'connected' ? connected : scoped;
           return (
             <>
               <PageGrid cols="2">
-                <StatCard label="Dialed" value={rows.length} hint="Every call you logged" />
-                <StatCard label="Connected" value={connected.length} hint="Calls that connected" tone="success" />
+                <StatCard label="Dialed" value={scoped.length} hint="Every call you logged" />
+                <StatCard label="Connected" value={connected.length} hint="Calls marked connected" tone="success" />
               </PageGrid>
-              <DataTable rows={connected} empty="No connected calls yet."
+              <DataTable rows={rows} empty={view === 'connected' ? 'No connected calls yet.' : 'No calls logged yet.'}
                 columns={[
-                  { key: 'lead', header: 'Lead', render: (r) => r.leadId ? <Link className="hover:underline" to={`${basePath}/leads/${r.leadId._id}`}>{leadLabel(r.leadId)}</Link> : '—' },
+                  { key: 'lead', header: 'Lead', render: (r) => {
+                    const lid = leadIdOf(r);
+                    return lid ? <Link className="hover:underline" to={leadHref(basePath, lid)}>{leadLabel(r.leadId)}</Link> : '—';
+                  } },
                   { key: 'outcome', header: 'Outcome', render: (r) => <StatusPill value={r.outcome} /> },
                   { key: 'durationMinutes', header: 'Duration', render: (r) => formatStoredDuration(r) || '—' },
                   { key: 'notes', header: 'Notes', render: (r) => <span className="line-clamp-1">{r.notes || '—'}</span> },
@@ -1351,7 +1480,7 @@ export function SalesCallsPage() {
           );
         }}
       </Query>
-      <FormModal open={open} onClose={() => setOpen(false)} title="Log call" initial={{ outcome: 'connected' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)} fields={[
+      <FormModal open={open} onClose={() => setOpen(false)} title="Log call" initial={{ outcome: 'connected', ...(filterLead ? { leadId: filterLead } : {}) }} pending={create.isPending} onSubmit={(v) => create.mutate(v)} fields={[
         { name: 'leadId', label: 'Lead', type: 'select', options: leads }, { name: 'outcome', label: 'Outcome', type: 'select', options: [{ value: 'connected', label: 'Connected' }, ...CALL_OUTCOMES], required: true },
         { name: 'durationMinutes', label: 'Duration (min)', type: 'number' }, { name: 'notes', label: 'Notes', type: 'textarea' },
         { name: 'nextAction', label: 'Next action' }, { name: 'nextFollowUpAt', label: 'Next follow-up', type: 'datetime' },
@@ -1361,6 +1490,9 @@ export function SalesCallsPage() {
 }
 
 export function SalesMeetingsPage() {
+  const basePath = useMe().basePath;
+  const [searchParams] = useSearchParams();
+  const filterLead = searchParams.get('lead') || '';
   const q = useSales<Any[]>('/meetings');
   const leads = useLeadOptions();
   const [open, setOpen] = useState(false);
@@ -1369,19 +1501,33 @@ export function SalesMeetingsPage() {
   const update = useSalesAction((v: Any) => post(`/meetings/${editing!._id}/status`, v), 'Meeting updated', () => setEditing(null));
   return (
     <>
-      <div className="flex justify-end"><Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Schedule meeting</Button></div>
+      <div className="flex flex-wrap items-center gap-2">
+        {filterLead && <Button variant="outline" size="sm" asChild><Link to={leadHref(basePath, filterLead)}>Back to lead</Link></Button>}
+        <Button className="ml-auto" onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Schedule meeting</Button>
+      </div>
       <Query q={q}>
-        {(rows) => (
+        {(allRows) => {
+          const rows = filterLead ? allRows.filter((r) => leadIdOf(r) === filterLead) : allRows;
+          return (
           <DataTable rows={rows} empty="No meetings." onRowClick={setEditing}
             columns={[
-              { key: 'title', header: 'Meeting', render: (r) => <div><p className="font-medium">{r.title}</p><p className="text-xs text-muted-foreground">{leadLabel(r.leadId)}</p></div> },
+              { key: 'title', header: 'Meeting', render: (r) => {
+                const lid = leadIdOf(r);
+                return (
+                  <div>
+                    <p className="font-medium">{r.title}</p>
+                    {lid ? <Link className="text-xs text-muted-foreground hover:underline" to={leadHref(basePath, lid)} onClick={(e) => e.stopPropagation()}>{leadLabel(r.leadId)}</Link> : <p className="text-xs text-muted-foreground">{leadLabel(r.leadId)}</p>}
+                  </div>
+                );
+              } },
               { key: 'type', header: 'Type', render: (r) => humanize(r.type) },
               { key: 'startsAt', header: 'When', render: (r) => fmtDateTime(r.startsAt) },
               { key: 'status', header: 'Status', render: (r) => <StatusPill value={r.status} /> },
             ]} />
-        )}
+          );
+        }}
       </Query>
-      <FormModal open={open} onClose={() => setOpen(false)} title="Schedule meeting" initial={{ type: 'discovery' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)}
+      <FormModal open={open} onClose={() => setOpen(false)} title="Schedule meeting" initial={{ type: 'discovery', ...(filterLead ? { leadId: filterLead } : {}) }} pending={create.isPending} onSubmit={(v) => create.mutate(v)}
         fields={[{ name: 'leadId', label: 'Lead', type: 'select', options: leads }, ...MEETING_FIELDS]} />
       <FormModal open={!!editing} onClose={() => setEditing(null)} title={editing?.title || ''} initial={editing || {}} pending={update.isPending}
         onSubmit={(v) => update.mutate({ status: v.status, notes: v.notes, decisions: v.decisions, nextSteps: v.nextSteps })} fields={[
@@ -1394,6 +1540,8 @@ export function SalesMeetingsPage() {
 
 export function SalesFollowUpsPage() {
   const basePath = useMe().basePath;
+  const [searchParams] = useSearchParams();
+  const filterLead = searchParams.get('lead') || '';
   const [status, setStatus] = useState('pending');
   const q = useSales<Any[]>(`/follow-ups?status=${status}`);
   const leads = useLeadOptions();
@@ -1402,15 +1550,21 @@ export function SalesFollowUpsPage() {
   const mark = useSalesAction((v: { id: string; status: string }) => post(`/follow-ups/${v.id}/status`, { status: v.status }), 'Updated');
   return (
     <>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        {filterLead && <Button variant="outline" size="sm" asChild><Link to={leadHref(basePath, filterLead)}>Back to lead</Link></Button>}
         <Select className="w-40" value={status} onChange={(e) => setStatus(e.target.value)}>{['pending', 'completed', 'missed', 'cancelled', 'all'].map((s) => <option key={s} value={s}>{humanize(s)}</option>)}</Select>
         <Button className="ml-auto" onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Schedule follow-up</Button>
       </div>
       <Query q={q}>
-        {(rows) => (
+        {(allRows) => {
+          const rows = filterLead ? allRows.filter((r) => leadIdOf(r) === filterLead) : allRows;
+          return (
           <DataTable rows={rows} empty="No follow-ups."
             columns={[
-              { key: 'lead', header: 'Lead', render: (r) => r.leadId ? <Link className="hover:underline" to={`${basePath}/leads/${r.leadId._id}`}>{leadLabel(r.leadId)}</Link> : '—' },
+              { key: 'lead', header: 'Lead', render: (r) => {
+                const lid = leadIdOf(r);
+                return lid ? <Link className="hover:underline" to={leadHref(basePath, lid)}>{leadLabel(r.leadId)}</Link> : '—';
+              } },
               { key: 'type', header: 'Type', render: (r) => humanize(r.type) },
               { key: 'notes', header: 'Notes', render: (r) => r.notes || '—' },
               { key: 'dueAt', header: 'Due', render: (r) => <span className={cn(r.status === 'pending' && new Date(r.dueAt) < new Date() && 'font-medium text-error')}>{fmtDateTime(r.dueAt)}</span> },
@@ -1422,9 +1576,10 @@ export function SalesFollowUpsPage() {
                 </div>
               ) },
             ]} />
-        )}
+          );
+        }}
       </Query>
-      <FormModal open={open} onClose={() => setOpen(false)} title="Schedule follow-up" initial={{ type: 'call', priority: 'medium' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)}
+      <FormModal open={open} onClose={() => setOpen(false)} title="Schedule follow-up" initial={{ type: 'call', priority: 'medium', ...(filterLead ? { leadId: filterLead } : {}) }} pending={create.isPending} onSubmit={(v) => create.mutate(v)}
         fields={[{ name: 'leadId', label: 'Lead', type: 'select', options: leads }, ...FOLLOWUP_FIELDS]} />
     </>
   );
@@ -1751,27 +1906,113 @@ export function SalesWorkStatusPage() {
 // ---------------------------------------------------------------- targets, territories
 export function SalesTargetsPage() {
   const me = useMe();
+  const basePath = me.basePath;
   const q = useSales<Any[]>('/targets');
+  const stages = useSales<Any[]>('/stage-targets');
   const team = useSales<Any[]>('/employees', me.isSalesAdmin);
   const [open, setOpen] = useState(false);
   const create = useSalesAction((v: Any) => post('/targets', v), 'Target set', () => setOpen(false));
   const remove = useSalesAction((id: string) => api.data(`/sales-crm/targets/${id}`, 'DELETE'), 'Target removed');
+  const stageRows = stages.data || [];
+  // Non-admin GET /stage-targets is already scoped to the logged-in BDA.
+  const myStages = stageRows;
   return (
     <>
-      {me.isSalesAdmin && <div className="flex justify-end"><Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Set target</Button></div>}
-      <Query q={q}>
-        {(rows) => (
-          <DataTable rows={rows} empty="No targets set."
-            columns={[
-              { key: 'employeeName', header: 'Employee', render: (r) => r.employeeName || '—' },
-              { key: 'period', header: 'Period', render: (r) => <div><p>{humanize(r.period)}</p><p className="text-xs text-muted-foreground">{fmtDate(r.periodStart)} – {fmtDate(r.periodEnd)}</p></div> },
-              { key: 'progress', header: 'Progress', render: (r) => <div className="w-48"><div className="mb-1 flex justify-between text-xs"><span>{inr(r.actual)} / {inr(r.targetValue)}</span><span className="font-medium">{r.pct}%</span></div><ProgressBar value={Math.min(100, r.pct)} /></div> },
-              { key: 'remaining', header: 'Remaining', render: (r) => <div><p>{inr(r.remaining)}</p><p className="text-xs text-muted-foreground">{r.daysRemaining} days left</p></div> },
-              { key: 'x', header: '', className: 'w-px', render: (r) => me.isSalesAdmin && <Button size="icon" variant="ghost" className="h-8 w-8 text-error" onClick={() => confirm('Remove this target?') && remove.mutate(r._id)}><Trash2 className="h-3.5 w-3.5" /></Button> },
-            ]} />
+      <PageHeader
+        title="Targets"
+        description={me.isSalesAdmin
+          ? 'Revenue targets and daily pipeline stage goals. Stage goals set on the company dashboard also show here for each BDA.'
+          : 'Your daily pipeline stage goals (set by your admin) and any revenue targets assigned to you.'}
+        action={me.isSalesAdmin ? (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" asChild><Link to="/dashboard#sales-team-bda">Edit stage targets</Link></Button>
+            <Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Set revenue target</Button>
+          </div>
+        ) : undefined}
+      />
+
+      <SectionCard
+        title="Daily pipeline stage targets"
+        action={<span className="text-xs text-muted-foreground">{myStages[0]?.date || 'Today'} · actual = leads you created or moved today</span>}
+      >
+        {stages.isLoading ? <PageLoading rows={2} /> : myStages.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {me.isSalesAdmin
+              ? 'No BDAs yet. Add a sales login, then set stage targets on the company dashboard.'
+              : 'Your admin has not set pipeline stage targets for you yet.'}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[40rem] text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  {me.isSalesAdmin && <th className="px-3 py-2 font-medium">BDA</th>}
+                  {LEAD_STATUSES.map((st) => <th key={st} className="px-3 py-2 font-medium">{humanize(st)}</th>)}
+                  <th className="px-3 py-2 font-medium">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {myStages.map((row) => {
+                  const targetTotal = Number(row.targetTotal || 0);
+                  const actualTotal = Number(row.actualTotal || 0);
+                  return (
+                    <tr key={row.employeeId} className="border-b last:border-0 align-top">
+                      {me.isSalesAdmin && (
+                        <td className="px-3 py-3">
+                          <p className="font-medium">{row.name}</p>
+                          <p className="font-mono text-[11px] text-muted-foreground">{row.employeeCode}</p>
+                        </td>
+                      )}
+                      {LEAD_STATUSES.map((st) => {
+                        const target = Number(row.stages?.[st] || 0);
+                        const actual = Number(row.actual?.[st] || 0);
+                        const met = target > 0 && actual >= target;
+                        return (
+                          <td key={st} className="px-3 py-3">
+                            <p className="tabular-nums font-medium">{actual}<span className="text-muted-foreground"> / {target}</span></p>
+                            <p className={`text-[11px] ${met ? 'text-success' : 'text-muted-foreground'}`}>{target ? (met ? 'On track' : 'Behind') : '—'}</p>
+                          </td>
+                        );
+                      })}
+                      <td className="px-3 py-3">
+                        <p className="tabular-nums font-medium">{actualTotal} / {targetTotal}</p>
+                        <div className="mt-1 w-28"><ProgressBar value={targetTotal ? Math.min(100, Math.round((actualTotal / targetTotal) * 100)) : 0} /></div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
-      </Query>
-      <FormModal open={open} onClose={() => setOpen(false)} title="Set target" initial={{ period: 'monthly' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)} fields={[
+        {!me.isSalesAdmin && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Tip: open <Link className="underline" to={`${basePath}/leads`}>Leads</Link> to move pipeline stages and update your actuals.
+          </p>
+        )}
+      </SectionCard>
+
+      <SectionCard title="Revenue targets">
+        {me.isSalesAdmin && (
+          <div className="mb-3 flex justify-end">
+            <Button size="sm" onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Set revenue target</Button>
+          </div>
+        )}
+        <Query q={q}>
+          {(rows) => (
+            <DataTable rows={rows} empty={me.isSalesAdmin ? 'No revenue targets set yet.' : 'No revenue target assigned to you yet.'}
+              columns={[
+                { key: 'employeeName', header: 'Employee', render: (r) => r.employeeName || '—' },
+                { key: 'period', header: 'Period', render: (r) => <div><p>{humanize(r.period)}</p><p className="text-xs text-muted-foreground">{fmtDate(r.periodStart)} – {fmtDate(r.periodEnd)}</p></div> },
+                { key: 'progress', header: 'Progress', render: (r) => <div className="w-48"><div className="mb-1 flex justify-between text-xs"><span>{inr(r.actual)} / {inr(r.targetValue)}</span><span className="font-medium">{r.pct}%</span></div><ProgressBar value={Math.min(100, r.pct)} /></div> },
+                { key: 'remaining', header: 'Remaining', render: (r) => <div><p>{inr(r.remaining)}</p><p className="text-xs text-muted-foreground">{r.daysRemaining} days left</p></div> },
+                { key: 'x', header: '', className: 'w-px', render: (r) => me.isSalesAdmin && <Button size="icon" variant="ghost" className="h-8 w-8 text-error" onClick={() => confirm('Remove this target?') && remove.mutate(r._id)}><Trash2 className="h-3.5 w-3.5" /></Button> },
+              ]} />
+          )}
+        </Query>
+      </SectionCard>
+
+      <FormModal open={open} onClose={() => setOpen(false)} title="Set revenue target" initial={{ period: 'monthly' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)} fields={[
         { name: 'employeeId', label: 'Employee', type: 'select', required: true, options: (team.data || []).filter((e) => !e.isSalesAdmin).map((e) => ({ value: e._id, label: e.name })) },
         { name: 'period', label: 'Period', type: 'select', required: true, options: ['daily', 'weekly', 'monthly', 'quarterly'] },
         { name: 'periodStart', label: 'Start', type: 'date', required: true }, { name: 'periodEnd', label: 'End (inclusive)', type: 'date', required: true },
@@ -2056,6 +2297,7 @@ export function SalesMyDayPage() {
   const basePath = me.basePath;
   const q = useSales<Any>('/my-day');
   const attendance = useSales<Any>('/attendance');
+  const stageTargets = useSales<Any[]>('/stage-targets');
   const [escalateOpen, setEscalateOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const checkIn = useSalesAction(() => post('/attendance/check-in'), 'Checked in');
@@ -2065,6 +2307,7 @@ export function SalesMyDayPage() {
     () => setEscalateOpen(false)
   );
   const today = attendance.data?.today;
+  const myStage = (stageTargets.data || [])[0];
   return (
     <Query q={q}>
       {(d) => (
@@ -2094,6 +2337,31 @@ export function SalesMyDayPage() {
             <StatCard label="Overdue follow-ups" value={d.stats.overdueFollowUps} tone={d.stats.overdueFollowUps ? 'danger' : 'default'} />
             <StatCard label="Today's meetings" value={d.stats.todayMeetings} />
           </PageGrid>
+          {myStage && Number(myStage.targetTotal || 0) > 0 && (
+            <SectionCard
+              title="Today's stage targets"
+              action={<Link className="text-xs hover:underline" to={`${basePath}/targets`}>Full targets →</Link>}
+            >
+              <div className="mb-3 flex items-center justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">Progress today</span>
+                <span className="font-medium tabular-nums">{myStage.actualTotal || 0} / {myStage.targetTotal || 0}</span>
+              </div>
+              <ProgressBar value={myStage.targetTotal ? Math.min(100, Math.round((Number(myStage.actualTotal || 0) / Number(myStage.targetTotal)) * 100)) : 0} />
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                {LEAD_STATUSES.map((st) => {
+                  const target = Number(myStage.stages?.[st] || 0);
+                  const actual = Number(myStage.actual?.[st] || 0);
+                  if (!target && !actual) return null;
+                  return (
+                    <div key={st} className="rounded-md border px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{humanize(st)}</p>
+                      <p className="mt-1 font-medium tabular-nums">{actual} <span className="text-muted-foreground">/ {target}</span></p>
+                    </div>
+                  );
+                })}
+              </div>
+            </SectionCard>
+          )}
           <CallAnalytics data={d.callAnalytics} />
           <PageGrid cols="2">
             <SectionCard title="My open tasks" action={<Link className="text-xs hover:underline" to={`${basePath}/tasks`}>View all</Link>}>
@@ -2102,18 +2370,30 @@ export function SalesMyDayPage() {
               )} />
             </SectionCard>
             <SectionCard title="Overdue follow-ups" action={<Link className="text-xs hover:underline" to={`${basePath}/follow-ups`}>View all</Link>}>
-              <SimpleList rows={d.overdueFollowUps} empty="Nothing overdue." render={(f) => (
-                <><span className="text-sm">{f.notes || humanize(f.type)} · {fmtDateTime(f.dueAt)}</span><StatusPill value={f.status} /></>
-              )} />
+              <SimpleList rows={d.overdueFollowUps} empty="Nothing overdue." render={(f) => {
+                const lid = leadIdOf(f);
+                return (
+                  <>
+                    {lid ? <Link className="text-sm hover:underline" to={leadHref(basePath, lid)}>{f.notes || humanize(f.type)}</Link> : <span className="text-sm">{f.notes || humanize(f.type)}</span>}
+                    <span className="flex items-center gap-2 text-xs text-muted-foreground">{fmtDateTime(f.dueAt)}<StatusPill value={f.status} /></span>
+                  </>
+                );
+              }} />
             </SectionCard>
             <SectionCard title="Today's meetings" action={<Link className="text-xs hover:underline" to={`${basePath}/meetings`}>View all</Link>}>
-              <SimpleList rows={d.todayMeetings} empty="No meetings today." render={(m) => (
-                <><span className="text-sm">{m.title}<span className="text-muted-foreground"> · {fmtDateTime(m.startsAt)}</span></span><StatusPill value={m.status} /></>
-              )} />
+              <SimpleList rows={d.todayMeetings} empty="No meetings today." render={(m) => {
+                const lid = leadIdOf(m);
+                return (
+                  <>
+                    {lid ? <Link className="text-sm hover:underline" to={leadHref(basePath, lid)}>{m.title}</Link> : <span className="text-sm">{m.title}</span>}
+                    <span className="flex items-center gap-2 text-xs text-muted-foreground">{fmtDateTime(m.startsAt)}<StatusPill value={m.status} /></span>
+                  </>
+                );
+              }} />
             </SectionCard>
             <SectionCard title="Hot / warm leads" action={<Link className="text-xs hover:underline" to={`${basePath}/leads`}>Inbox</Link>}>
               <SimpleList rows={d.hotLeads} empty="No hot leads." render={(l) => (
-                <><Link className="hover:underline" to={`${basePath}/leads/${l._id}`}>{leadLabel(l)}</Link><StatusPill value={l.temperature} /></>
+                <><Link className="hover:underline" to={leadHref(basePath, l._id)}>{leadLabel(l)}</Link><StatusPill value={l.temperature} /></>
               )} />
             </SectionCard>
           </PageGrid>
@@ -2146,11 +2426,13 @@ export function SalesMyDayPage() {
 export function SalesMessagesPage() {
   const me = useMe();
   const basePath = me.basePath;
+  const [searchParams] = useSearchParams();
+  const filterLead = searchParams.get('lead') || '';
   const [channel, setChannel] = useState<'all' | 'email' | 'whatsapp'>('all');
   const qs = channel === 'all' ? '' : `?channel=${channel}`;
   const q = useSales<Any[]>(`/messages${qs}`, me.modules['comm.email_whatsapp']);
   const leads = useLeadOptions();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(Boolean(filterLead));
   const create = useSalesAction(async (v: Any) => {
     const res = await post('/messages', v) as Any;
     if (res?.deepLink) window.open(res.deepLink, '_blank', 'noopener,noreferrer');
@@ -2159,6 +2441,7 @@ export function SalesMessagesPage() {
   return (
     <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        {filterLead && <Button variant="outline" size="sm" asChild><Link to={leadHref(basePath, filterLead)}>Back to lead</Link></Button>}
         <Select className="w-40" value={channel} onChange={(e) => setChannel(e.target.value as typeof channel)}>
           <option value="all">All channels</option>
           <option value="email">Email</option>
@@ -2167,19 +2450,25 @@ export function SalesMessagesPage() {
         <Button className="sm:ml-auto" onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Log / compose</Button>
       </div>
       <Query q={q}>
-        {(rows) => (
+        {(allRows) => {
+          const rows = filterLead ? allRows.filter((r) => leadIdOf(r) === filterLead) : allRows;
+          return (
           <DataTable rows={rows} empty="No messages logged yet."
             columns={[
               { key: 'channel', header: 'Channel', render: (r) => <StatusPill value={r.channel} /> },
-              { key: 'lead', header: 'Lead', render: (r) => r.leadId ? <Link className="hover:underline" to={`${basePath}/leads/${r.leadId._id || r.leadId}`}>{leadLabel(r.leadId)}</Link> : '—' },
+              { key: 'lead', header: 'Lead', render: (r) => {
+                const lid = leadIdOf(r);
+                return lid ? <Link className="hover:underline" to={leadHref(basePath, lid)}>{leadLabel(r.leadId)}</Link> : '—';
+              } },
               { key: 'toAddress', header: 'To', render: (r) => r.toAddress || '—' },
               { key: 'subject', header: 'Subject / preview', render: (r) => <div><p className="font-medium">{r.subject || humanize(r.channel)}</p><p className="line-clamp-1 text-xs text-muted-foreground">{r.body}</p></div> },
               { key: 'sentAt', header: 'When', render: (r) => fmtDateTime(r.sentAt) },
             ]} />
-        )}
+          );
+        }}
       </Query>
       <FormModal open={open} onClose={() => setOpen(false)} title="Log email or WhatsApp" pending={create.isPending}
-        initial={{ channel: 'whatsapp', direction: 'outbound' }}
+        initial={{ channel: 'whatsapp', direction: 'outbound', ...(filterLead ? { leadId: filterLead } : {}) }}
         onSubmit={(v) => create.mutate(v)}
         fields={[
           { name: 'channel', label: 'Channel', type: 'select', options: ['email', 'whatsapp'], required: true },
