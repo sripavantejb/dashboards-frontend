@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { ChevronLeft, LogOut, Menu, X, Bell } from 'lucide-react';
@@ -33,6 +33,8 @@ export function BdaShell({ children, modules, employeeCode, displayName, basePat
   const [mobileOpen, setMobileOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [signOutAfterCheckout, setSignOutAfterCheckout] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
   const orgName = organization?.name || 'Sales';
 
   useEffect(() => {
@@ -41,6 +43,14 @@ export function BdaShell({ children, modules, employeeCode, displayName, basePat
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
   }, []);
 
   const sections = useMemo(
@@ -137,36 +147,6 @@ export function BdaShell({ children, modules, employeeCode, displayName, basePat
           ))}
         </nav>
       </ScrollArea>
-
-      <div className={cn('border-t border-black/[0.06] p-3', sidebarCollapsed && 'px-2')}>
-        <div className={cn('mb-3 flex items-center gap-2.5 rounded-lg bg-black/[0.03] p-2', sidebarCollapsed && 'justify-center bg-transparent p-0')}>
-          <Avatar className="h-9 w-9 ring-2 ring-white">
-            <AvatarFallback className="bg-foreground text-[11px] font-semibold text-background">{getInitials(displayName)}</AvatarFallback>
-          </Avatar>
-          {!sidebarCollapsed && (
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold tracking-tight">{displayName}</p>
-              <p className="truncate font-mono text-[11px] text-muted-foreground">{employeeCode || 'BDA'}</p>
-            </div>
-          )}
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn('w-full border-black/10 bg-white/70 hover:bg-white', sidebarCollapsed && 'px-0')}
-          onClick={() => {
-            if (needsCheckout) {
-              setSignOutAfterCheckout(true);
-              setCheckoutOpen(true);
-              return;
-            }
-            finishSignOut();
-          }}
-        >
-          <LogOut className="h-4 w-4" />
-          {!sidebarCollapsed && <span className="ml-2">Sign out</span>}
-        </Button>
-      </div>
     </aside>
   );
 
@@ -205,18 +185,69 @@ export function BdaShell({ children, modules, employeeCode, displayName, basePat
             <p className="truncate text-xs text-muted-foreground">BDA workspace · leads, deals, and follow-ups</p>
           </div>
         </div>
-        <Link
-          to={`${basePath}/notifications`}
-          className="relative ml-auto inline-flex h-10 w-10 items-center justify-center rounded-lg border border-black/[0.06] bg-white/70 text-muted-foreground shadow-sm backdrop-blur transition hover:border-black/10 hover:bg-white hover:text-foreground"
-          title="Notifications"
-        >
-          <Bell className="h-4 w-4" />
-          {unread > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-md bg-error px-1 text-[10px] font-semibold text-white">
-              {unread > 9 ? '9+' : unread}
-            </span>
-          )}
-        </Link>
+        <div className="ml-auto flex items-center gap-2">
+          <Link
+            to={`${basePath}/notifications`}
+            className="relative inline-flex h-10 w-10 items-center justify-center rounded-lg border border-black/[0.06] bg-white/70 text-muted-foreground shadow-sm backdrop-blur transition hover:border-black/10 hover:bg-white hover:text-foreground"
+            title="Notifications"
+          >
+            <Bell className="h-4 w-4" />
+            {unread > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-md bg-error px-1 text-[10px] font-semibold text-white">
+                {unread > 9 ? '9+' : unread}
+              </span>
+            )}
+          </Link>
+          <div className="relative" ref={profileRef}>
+            <button
+              type="button"
+              onClick={() => setProfileOpen((open) => !open)}
+              className="flex max-w-[14rem] items-center gap-2 rounded-lg border border-black/[0.06] bg-white/70 py-1 pl-1 pr-2.5 shadow-sm backdrop-blur transition hover:border-black/10 hover:bg-white"
+              aria-haspopup="menu"
+              aria-expanded={profileOpen}
+            >
+              <Avatar className="h-8 w-8">
+                <AvatarFallback className="bg-foreground text-[11px] font-semibold text-background">{getInitials(displayName)}</AvatarFallback>
+              </Avatar>
+              <div className="hidden min-w-0 text-left sm:block">
+                <p className="truncate text-sm font-semibold leading-tight">{displayName}</p>
+                <p className="truncate font-mono text-[10px] text-muted-foreground">{employeeCode || 'BDA'}</p>
+              </div>
+            </button>
+            <AnimatePresence>
+              {profileOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.16 }}
+                  className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-lg border bg-popover p-1 shadow-card"
+                  role="menu"
+                >
+                  <div className="border-b px-3 py-2 sm:hidden">
+                    <p className="truncate text-sm font-semibold">{displayName}</p>
+                    <p className="truncate font-mono text-[11px] text-muted-foreground">{employeeCode || 'BDA'}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-error hover:bg-surface-soft"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      if (needsCheckout) {
+                        setSignOutAfterCheckout(true);
+                        setCheckoutOpen(true);
+                        return;
+                      }
+                      finishSignOut();
+                    }}
+                  >
+                    <LogOut className="h-4 w-4" /> Sign out
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
       </header>
 
       <motion.main
