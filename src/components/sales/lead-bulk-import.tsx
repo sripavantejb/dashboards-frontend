@@ -8,8 +8,12 @@ import { SimpleModal } from '@/components/shared/simple-modal';
 import { Select } from '@/components/shared/os-ui';
 
 type Template = {
-  filename: string;
+  filename?: string;
+  filenameCsv?: string;
+  filenameXlsx?: string;
   csv: string;
+  xlsxBase64?: string;
+  formats?: string[];
   columns: Array<{ key: string; required: boolean; description: string }>;
   allowed: {
     source: string[];
@@ -26,18 +30,64 @@ type ImportResult = {
   skipped: number;
   failed: number;
   totalRows: number;
+  format?: string;
   errors: Array<{ row: number; message: string }>;
   leadIds: string[];
 };
 
-function downloadCsv(filename: string, csv: string) {
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+const ACCEPT = '.csv,.tsv,.txt,.xlsx,.xls,.xlsm,.xlsb,.ods,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+const FALLBACK_CSV = [
+  'contactPerson,company,phone,email,website,city,state,country,source,campaign,industry,requirement,priority,temperature,status,territory,notes,tags,nextFollowUpAt',
+  'Priya Sharma,Sunrise Clinics,+919876543210,priya@sunriseclinics.in,https://sunriseclinics.in,Hyderabad,Telangana,India,website,spring_ads,Healthcare,Need Instagram + Google ads for new branch,high,hot,new,South,Asked for a callback this week,clinic;ads,2026-10-10',
+  'Rahul Mehta,Orbit Retail,+918888777666,rahul@orbitretail.com,,Mumbai,Maharashtra,India,referral,,Retail,Website redesign quote,medium,warm,contacted,West,Referred by existing customer,retail,',
+  'Ananya Iyer,,+917700112233,ananya.iyer@gmail.com,,Bengaluru,Karnataka,India,instagram,reel_may,,Personal brand content package,low,cold,new,,,,2026-10-12T15:30',
+  '',
+].join('\n');
+
+const FALLBACK_COLUMNS: Template['columns'] = [
+  { key: 'contactPerson', required: true, description: 'Full name of the contact (required)' },
+  { key: 'company', required: false, description: 'Company or business name' },
+  { key: 'phone', required: false, description: 'Phone with country code, e.g. +919876543210' },
+  { key: 'email', required: false, description: 'Valid email address' },
+  { key: 'website', required: false, description: 'Company website URL' },
+  { key: 'city', required: false, description: 'City' },
+  { key: 'state', required: false, description: 'State / region' },
+  { key: 'country', required: false, description: 'Country' },
+  { key: 'source', required: false, description: 'website | referral | instagram | facebook | linkedin | google | ads | campaign | cold_outreach | existing_customer | other' },
+  { key: 'campaign', required: false, description: 'Campaign or ad name' },
+  { key: 'industry', required: false, description: 'Industry vertical' },
+  { key: 'requirement', required: false, description: 'What they need' },
+  { key: 'priority', required: false, description: 'urgent | high | medium | low' },
+  { key: 'temperature', required: false, description: 'hot | warm | cold' },
+  { key: 'status', required: false, description: 'new | contacted | qualified | unqualified | converted | lost' },
+  { key: 'territory', required: false, description: 'Territory or zone' },
+  { key: 'notes', required: false, description: 'Free-text notes' },
+  { key: 'tags', required: false, description: 'Semicolon-separated tags, e.g. vip;q1' },
+  { key: 'nextFollowUpAt', required: false, description: 'Callback date YYYY-MM-DD or YYYY-MM-DDTHH:mm' },
+];
+
+function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   URL.revokeObjectURL(url);
+}
+
+function downloadText(filename: string, text: string, mime: string) {
+  downloadBlob(filename, new Blob([text], { type: mime }));
+}
+
+function downloadBase64(filename: string, base64: string, mime: string) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  downloadBlob(filename, new Blob([bytes], { type: mime }));
 }
 
 export function LeadBulkImportModal({
@@ -49,8 +99,7 @@ export function LeadBulkImportModal({
   onClose: () => void;
   onImported: () => void;
 }) {
-  const [csvText, setCsvText] = useState('');
-  const [fileName, setFileName] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [duplicateStrategy, setDuplicateStrategy] = useState<'skip' | 'update'>('skip');
   const [result, setResult] = useState<ImportResult | null>(null);
 
@@ -59,24 +108,43 @@ export function LeadBulkImportModal({
     queryFn: () => api.data<Template>('/sales-crm/leads/import/template'),
     enabled: open,
     staleTime: 60_000,
+    retry: 1,
   });
+
+  const template = templateQ.data;
+  const columns = template?.columns?.length ? template.columns : FALLBACK_COLUMNS;
+  const tips = template?.tips?.length
+    ? template.tips
+    : [
+      'Download sample CSV or Excel, fill rows, then upload.',
+      'Supports .xlsx, .xls, .csv, .tsv, .txt and other spreadsheet formats.',
+      'contactPerson is required on every row.',
+    ];
 
   useEffect(() => {
     if (!open) {
-      setCsvText('');
-      setFileName('');
+      setFile(null);
       setResult(null);
       setDuplicateStrategy('skip');
     }
   }, [open]);
 
-  const previewRows = useMemo(() => {
-    if (!csvText.trim()) return 0;
-    return Math.max(0, csvText.replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim()).length - 1);
-  }, [csvText]);
+  const fileLabel = useMemo(() => {
+    if (!file) return '';
+    const kb = Math.max(1, Math.round(file.size / 1024));
+    return `${file.name} · ${kb} KB`;
+  }, [file]);
 
   const importMut = useMutation({
-    mutationFn: () => api.data<ImportResult>('/sales-crm/leads/import', 'POST', { csv: csvText, duplicateStrategy }),
+    mutationFn: async () => {
+      if (!file) throw new Error('Choose a spreadsheet file first');
+      const form = new FormData();
+      form.append('file', file);
+      form.append('duplicateStrategy', duplicateStrategy);
+      const res = await api.upload<ImportResult>('/sales-crm/leads/import/upload', form);
+      if (!res.success || !res.data) throw new Error(res.error?.message || 'Import failed');
+      return res.data;
+    },
     onSuccess: (data) => {
       setResult(data);
       const parts = [
@@ -91,86 +159,112 @@ export function LeadBulkImportModal({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const onFile = async (file: File | null) => {
-    if (!file) return;
-    if (!/\.(csv|txt)$/i.test(file.name)) {
-      toast.error('Please upload a .csv file');
+  const onFile = (next: File | null) => {
+    if (!next) return;
+    const ok = /\.(csv|tsv|txt|xlsx|xls|xlsm|xlsb|ods)$/i.test(next.name)
+      || /sheet|excel|csv|text/.test(next.type);
+    if (!ok) {
+      toast.error('Use .xlsx, .xls, .csv, .tsv, or .txt');
       return;
     }
-    const text = await file.text();
-    setCsvText(text);
-    setFileName(file.name);
+    setFile(next);
     setResult(null);
+  };
+
+  const downloadSampleCsv = () => {
+    const csv = template?.csv || FALLBACK_CSV;
+    const name = template?.filenameCsv || template?.filename || 'bda-leads-import-sample.csv';
+    downloadText(name, csv, 'text/csv;charset=utf-8');
+    toast.success('Sample CSV downloaded');
+  };
+
+  const downloadSampleXlsx = async () => {
+    try {
+      if (template?.xlsxBase64) {
+        downloadBase64(
+          template.filenameXlsx || 'bda-leads-import-sample.xlsx',
+          template.xlsxBase64,
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+        toast.success('Sample Excel downloaded');
+        return;
+      }
+      await api.download('/sales-crm/leads/import/template.xlsx', 'bda-leads-import-sample.xlsx');
+      toast.success('Sample Excel downloaded');
+    } catch {
+      // Last resort: offer CSV so the user is never stuck.
+      downloadSampleCsv();
+      toast.message('Excel sample unavailable — downloaded CSV instead');
+    }
   };
 
   return (
     <SimpleModal open={open} onClose={onClose} title="Bulk import leads" className="max-w-2xl">
       <div className="space-y-5">
         <p className="text-sm text-muted-foreground">
-          Download the sample sheet, fill your leads using the same column headers, then upload the CSV.
-          Imported leads appear in this list with status, temperature, notes, and callbacks wired like manually created leads.
+          Download a sample sheet (CSV or Excel), fill your leads with the same column headers, then upload.
+          Supports <span className="font-medium text-foreground">.xlsx, .xls, .csv, .tsv, .txt</span> and other spreadsheet formats.
         </p>
 
         <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-9"
-            disabled={!templateQ.data}
-            onClick={() => {
-              const t = templateQ.data;
-              if (!t) return;
-              downloadCsv(t.filename, t.csv);
-              toast.success('Sample sheet downloaded');
-            }}
-          >
+          <Button type="button" variant="outline" className="h-9" onClick={downloadSampleCsv}>
             <Download className="mr-2 h-4 w-4" />
-            Download sample CSV
+            Sample CSV
+          </Button>
+          <Button type="button" variant="outline" className="h-9" onClick={() => void downloadSampleXlsx()}>
+            <FileSpreadsheet className="mr-2 h-4 w-4" />
+            Sample Excel (.xlsx)
           </Button>
         </div>
 
-        {templateQ.data && (
-          <div className="overflow-hidden rounded-lg border border-black/[0.06]">
-            <div className="border-b border-black/[0.05] bg-surface-soft/50 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
-              CSV columns
-            </div>
-            <div className="max-h-40 overflow-y-auto">
-              <table className="w-full text-left text-xs">
-                <tbody>
-                  {templateQ.data.columns.map((col) => (
-                    <tr key={col.key} className="border-b border-black/[0.04] last:border-0">
-                      <td className="whitespace-nowrap px-3 py-1.5 font-medium">
-                        {col.key}
-                        {col.required && <span className="ml-1 text-error">*</span>}
-                      </td>
-                      <td className="px-3 py-1.5 text-muted-foreground">{col.description}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        <div className="overflow-hidden rounded-lg border border-black/[0.06]">
+          <div className="border-b border-black/[0.05] bg-surface-soft/50 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+            Sheet columns
           </div>
-        )}
+          <div className="max-h-40 overflow-y-auto">
+            <table className="w-full text-left text-xs">
+              <tbody>
+                {columns.map((col) => (
+                  <tr key={col.key} className="border-b border-black/[0.04] last:border-0">
+                    <td className="whitespace-nowrap px-3 py-1.5 font-medium">
+                      {col.key}
+                      {col.required && <span className="ml-1 text-error">*</span>}
+                    </td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{col.description}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
-        {templateQ.data?.tips?.length ? (
-          <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-            {templateQ.data.tips.map((tip) => (
-              <li key={tip}>{tip}</li>
-            ))}
-          </ul>
-        ) : null}
+        <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+          {tips.map((tip) => (
+            <li key={tip}>{tip}</li>
+          ))}
+        </ul>
 
-        <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-black/10 bg-surface-soft/30 px-4 py-8 text-center transition-colors hover:border-black/20 hover:bg-surface-soft/50">
+        <label
+          className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-black/10 bg-surface-soft/30 px-4 py-8 text-center transition-colors hover:border-black/20 hover:bg-surface-soft/50"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            onFile(e.dataTransfer.files?.[0] || null);
+          }}
+        >
           <Upload className="mb-2 h-7 w-7 text-muted-foreground" />
-          <p className="text-sm font-medium">{fileName || 'Drop CSV here or click to upload'}</p>
+          <p className="text-sm font-medium">{fileLabel || 'Drop spreadsheet here or click to upload'}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {previewRows > 0 ? `${previewRows} data row${previewRows === 1 ? '' : 's'} ready` : 'Accepts .csv up to 500 rows'}
+            {file ? 'Ready to import' : 'xlsx · xls · csv · tsv · txt · up to 500 rows'}
           </p>
           <input
             type="file"
-            accept=".csv,text/csv,.txt"
+            accept={ACCEPT}
             className="hidden"
-            onChange={(e) => void onFile(e.target.files?.[0] || null)}
+            onChange={(e) => {
+              onFile(e.target.files?.[0] || null);
+              e.target.value = '';
+            }}
           />
         </label>
 
@@ -198,7 +292,9 @@ export function LeadBulkImportModal({
           <div className="rounded-lg border border-black/[0.06] bg-surface-soft/40 px-3 py-3 text-sm">
             <p className="font-medium">
               {result.imported} imported · {result.updated} updated · {result.skipped} skipped · {result.failed} failed
-              <span className="font-normal text-muted-foreground"> ({result.totalRows} rows)</span>
+              <span className="font-normal text-muted-foreground">
+                {' '}({result.totalRows} rows{result.format ? ` · ${result.format}` : ''})
+              </span>
             </p>
             {result.errors.length > 0 && (
               <ul className="mt-2 max-h-28 space-y-1 overflow-y-auto text-xs text-error">
@@ -214,7 +310,7 @@ export function LeadBulkImportModal({
           <Button type="button" variant="ghost" onClick={onClose}>Close</Button>
           <Button
             type="button"
-            disabled={!csvText.trim() || importMut.isPending}
+            disabled={!file || importMut.isPending}
             onClick={() => importMut.mutate()}
           >
             {importMut.isPending ? 'Importing…' : 'Import leads'}
