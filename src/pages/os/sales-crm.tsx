@@ -62,11 +62,26 @@ function useSales<T = any>(path: string, enabled = true) {
   return useQuery({ queryKey: ['sales', path], queryFn: () => api.data<T>(`/sales-crm${path}`), enabled });
 }
 
-function useSalesAction<V = unknown>(fn: (v: V) => Promise<unknown>, success?: string, after?: (r: any) => void) {
+function invalidateSales(qc: ReturnType<typeof useQueryClient>, paths?: string[]) {
+  if (!paths?.length) {
+    void qc.invalidateQueries({ queryKey: ['sales'] });
+    return;
+  }
+  void qc.invalidateQueries({
+    predicate: (q) => q.queryKey[0] === 'sales' && paths.some((p) => String(q.queryKey[1] || '').startsWith(p)),
+  });
+}
+
+function useSalesAction<V = unknown>(fn: (v: V) => Promise<unknown>, success?: string, after?: (r: any) => void, paths: string[] | 'all' = 'all') {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,
-    onSuccess: (r) => { if (success) toast.success(success); qc.invalidateQueries({ queryKey: ['sales'] }); after?.(r); },
+    onSuccess: (r) => {
+      if (success) toast.success(success);
+      if (paths === 'all') invalidateSales(qc);
+      else invalidateSales(qc, paths);
+      after?.(r);
+    },
     onError: onErr,
   });
 }
@@ -496,6 +511,9 @@ export function SalesDashboardPage() {
               </div>
             </SectionCard>
           </PageGrid>
+          <SectionCard title="Recent BDA activity" action={<span className="text-xs text-muted-foreground">Also emailed hourly</span>}>
+            <SalesActivityList rows={d.recentActivity || []} />
+          </SectionCard>
         </>
       ) : (
         <>
@@ -551,6 +569,7 @@ export function SalesLeadsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const drawer = isBdaPortal(me.basePath);
   const selectedId = searchParams.get('lead');
+  const [callingLead, setCallingLead] = useState<Any | null>(null);
   const [filter, setFilter] = useState(EMPTY_LEAD_FILTER);
   const dates = filter.datePreset === 'custom' ? { from: filter.from, to: filter.to } : presetRange(filter.datePreset);
   const qs = new URLSearchParams({
@@ -577,17 +596,18 @@ export function SalesLeadsPage() {
     return map;
   }, [dealsQ.data]);
   const [open, setOpen] = useState(false);
-  const create = useSalesAction((v: Any) => post('/leads', v), 'Lead created', () => setOpen(false));
-  const setStatus = useSalesAction((v: { id: string; status: string }) => post(`/leads/${v.id}/status`, { status: v.status }), 'Status updated');
-  const setTemp = useSalesAction((v: { id: string; temperature: string }) => api.data(`/sales-crm/leads/${v.id}`, 'PATCH', { temperature: v.temperature }), 'Temperature updated');
-  const logCall = useSalesAction((v: { id: string; outcome: string }) => post('/calls', { leadId: v.id, outcome: v.outcome }), 'Call logged');
-  const scheduleCb = useSalesAction((v: { id: string; dueAt: string }) => post('/follow-ups', { leadId: v.id, dueAt: v.dueAt, type: 'call', notes: 'Callback' }), 'Callback scheduled');
-  const moveDeal = useSalesAction((v: { id: string; stage: string }) => post(`/deals/${v.id}/stage`, { stage: v.stage }), 'Deal stage updated');
+  const leadPaths = ['/leads', '/dashboard', '/my-day', '/activity', '/calls', '/deals'];
+  const create = useSalesAction((v: Any) => post('/leads', v), 'Lead created', () => setOpen(false), leadPaths);
+  const setStatus = useSalesAction((v: { id: string; status: string }) => post(`/leads/${v.id}/status`, { status: v.status }), 'Status updated', undefined, leadPaths);
+  const setTemp = useSalesAction((v: { id: string; temperature: string }) => api.data(`/sales-crm/leads/${v.id}`, 'PATCH', { temperature: v.temperature }), 'Temperature updated', undefined, leadPaths);
+  const logCall = useSalesAction((v: { id: string; outcome: string }) => post('/calls', { leadId: v.id, outcome: v.outcome }), 'Call logged', undefined, leadPaths);
+  const scheduleCb = useSalesAction((v: { id: string; dueAt: string }) => post('/follow-ups', { leadId: v.id, dueAt: v.dueAt, type: 'call', notes: 'Callback' }), 'Callback scheduled', undefined, leadPaths);
+  const moveDeal = useSalesAction((v: { id: string; stage: string }) => post(`/deals/${v.id}/stage`, { stage: v.stage }), 'Deal stage updated', undefined, leadPaths);
   const startDeal = useSalesAction(async (v: { leadId: string; name: string; stage: string }) => {
     const created = await post('/deals', { dealName: v.name, leadId: v.leadId, probability: 10, priority: 'medium' }) as Any;
     if (v.stage && v.stage !== 'new') await post(`/deals/${created._id}/stage`, { stage: v.stage });
     return created;
-  }, 'Deal stage updated');
+  }, 'Deal stage updated', undefined, leadPaths);
   const activeFilters = [
     filter.status !== 'all', filter.temperature, filter.source, filter.priority, filter.datePreset !== 'all',
     filter.followUp, filter.dealStage, filter.assignedEmployeeId, filter.unassigned, filter.search,
@@ -711,12 +731,29 @@ export function SalesLeadsPage() {
               ) },
               ...(me.modules['comm.calls'] ? [{
                 key: 'call', header: 'Call', className: 'w-px', render: (r: Any) => (
-                  <StageSelect
-                    value=""
-                    placeholder="Log call…"
-                    options={[{ value: 'connected', label: 'Connected' }, ...CALL_OUTCOMES.map((o) => ({ value: o.value, label: o.label }))]}
-                    onChange={(outcome) => outcome && logCall.mutate({ id: r._id, outcome })}
-                  />
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 w-8 shrink-0 px-0"
+                      disabled={!String(r.phone || '').trim() || callingLead?._id === r._id}
+                      title={String(r.phone || '').trim() ? `Call ${r.phone}` : 'Add a phone number first'}
+                      aria-label={String(r.phone || '').trim() ? `Call ${r.contactPerson}` : 'No phone number'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCallingLead(r);
+                      }}
+                    >
+                      <Phone className="h-3.5 w-3.5" />
+                    </Button>
+                    <StageSelect
+                      value=""
+                      placeholder="Log…"
+                      options={[{ value: 'connected', label: 'Connected' }, ...CALL_OUTCOMES.map((o) => ({ value: o.value, label: o.label }))]}
+                      onChange={(outcome) => outcome && logCall.mutate({ id: r._id, outcome })}
+                    />
+                  </div>
                 ),
               }] : []),
               ...(me.modules['sales.deals'] ? [{
@@ -762,6 +799,19 @@ export function SalesLeadsPage() {
         <RightInspector open={Boolean(selectedId)} onClose={() => setSearchParams({})}>
           {selectedId && <LeadInspector id={selectedId} onClose={() => setSearchParams({})} />}
         </RightInspector>
+      )}
+      {callingLead && me.modules['comm.calls'] && (
+        <LeadCallProvider
+          key={callingLead._id}
+          leadId={callingLead._id}
+          phone={callingLead.phone}
+          contactName={callingLead.contactPerson}
+          company={callingLead.company}
+          enabled
+          basePath={me.basePath}
+          autoStart
+          onDone={() => setCallingLead(null)}
+        />
       )}
     </>
   );

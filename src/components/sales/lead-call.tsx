@@ -53,6 +53,8 @@ export function LeadCallProvider({
   enabled,
   basePath,
   children,
+  autoStart = false,
+  onDone,
 }: {
   leadId: string;
   phone?: string;
@@ -60,7 +62,10 @@ export function LeadCallProvider({
   company?: string;
   enabled: boolean;
   basePath: string;
-  children: ReactNode;
+  children?: ReactNode;
+  /** Start dialing as soon as this provider mounts (leads table Call button). */
+  autoStart?: boolean;
+  onDone?: () => void;
 }) {
   const qc = useQueryClient();
   const [session, setSession] = useState<CallSession | null>(null);
@@ -74,10 +79,12 @@ export function LeadCallProvider({
   const started = useRef(0);
   const phaseRef = useRef(phase);
   const endRef = useRef<(source: 'phone_return' | 'crm_timer') => void>(() => {});
+  const autoStarted = useRef(false);
+  const startRef = useRef<() => Promise<void>>(async () => {});
   phaseRef.current = phase;
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || autoStart) return;
     let cancel = false;
     api.data<CallSession | null>(`/sales-crm/calling/sessions/open?leadId=${leadId}`)
       .then((open) => {
@@ -91,7 +98,7 @@ export function LeadCallProvider({
       })
       .catch(() => {});
     return () => { cancel = true; };
-  }, [leadId, enabled]);
+  }, [leadId, enabled, autoStart]);
 
   const poll = useQuery({
     queryKey: ['call-session', session?._id],
@@ -147,6 +154,7 @@ export function LeadCallProvider({
     if (!enabled) return;
     if (!phone?.trim()) {
       toast.error('This lead has no phone number');
+      onDone?.();
       return;
     }
     try {
@@ -159,6 +167,7 @@ export function LeadCallProvider({
       setDialHint('starting');
       setPhase('calling');
       if (created.telUri) {
+        // Prefer the native dialer / Continuity Phone Link so the device actually rings.
         if (isHandset()) {
           openTel(created.telUri);
           setDialHint('direct');
@@ -174,11 +183,24 @@ export function LeadCallProvider({
         const channel = created.channel === 'os_phone_link' ? 'os_phone_link' : 'this_device';
         const dialing = await api.data<CallSession>(`/sales-crm/calling/sessions/${created._id}/dialing`, 'POST', { channel });
         setSession(dialing);
+      } else {
+        toast.error('Could not build a dialable number for this lead');
+        setPhase('idle');
+        setSession(null);
+        onDone?.();
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not start the call');
+      onDone?.();
     }
   };
+  startRef.current = start;
+
+  useEffect(() => {
+    if (!autoStart || !enabled || autoStarted.current) return;
+    autoStarted.current = true;
+    void startRef.current();
+  }, [autoStart, enabled]);
 
   const resume = (call: CallSession) => {
     setSession(call);
@@ -186,15 +208,23 @@ export function LeadCallProvider({
     if (call.status !== 'awaiting_outcome') started.current = Date.now();
   };
 
+  const finishUi = () => {
+    setPhase('idle');
+    setSession(null);
+    onDone?.();
+  };
+
   const cancel = async () => {
-    if (!session) return;
+    if (!session) {
+      finishUi();
+      return;
+    }
     try {
       await api.data(`/sales-crm/calling/sessions/${session._id}/cancel`, 'POST', {});
     } catch {
       /* already finished */
     }
-    setPhase('idle');
-    setSession(null);
+    finishUi();
   };
 
   const save = async () => {
@@ -213,9 +243,10 @@ export function LeadCallProvider({
         ...(followUp ? { nextFollowUpAt: followUp } : {}),
       });
       toast.success('Call saved');
-      setPhase('idle');
-      setSession(null);
-      qc.invalidateQueries({ queryKey: ['sales'] });
+      finishUi();
+      void qc.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === 'sales' && ['/leads', '/calls', '/dashboard', '/my-day', '/activity'].some((p) => String(q.queryKey[1] || '').startsWith(p)),
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not save the call');
     } finally {
@@ -259,7 +290,7 @@ export function LeadCallProvider({
           onNotes={setNotes}
           onFollowUp={setFollowUp}
           onSave={save}
-          onCancel={phase === 'calling' ? cancel : () => setPhase('idle')}
+          onCancel={phase === 'calling' ? cancel : finishUi}
           onDismissWindowsTip={dismissWindowsTip}
         />
       )}
