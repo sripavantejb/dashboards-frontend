@@ -62,27 +62,43 @@ function useSales<T = any>(path: string, enabled = true) {
   return useQuery({ queryKey: ['sales', path], queryFn: () => api.data<T>(`/sales-crm${path}`), enabled });
 }
 
-function invalidateSales(qc: ReturnType<typeof useQueryClient>, paths?: string[]) {
-  if (!paths?.length) {
-    void qc.invalidateQueries({ queryKey: ['sales'] });
-    return;
-  }
-  void qc.invalidateQueries({
-    predicate: (q) => q.queryKey[0] === 'sales' && paths.some((p) => String(q.queryKey[1] || '').startsWith(p)),
+function isLeadsQuery(key: unknown) {
+  const path = String(key || '');
+  return path === '/leads' || path.startsWith('/leads?') || path.startsWith('/leads/');
+}
+
+function patchLeadRows(qc: ReturnType<typeof useQueryClient>, id: string, patch: Record<string, unknown>) {
+  qc.setQueriesData({ predicate: (q) => q.queryKey[0] === 'sales' && isLeadsQuery(q.queryKey[1]) }, (old: unknown) => {
+    if (Array.isArray(old)) return old.map((row: Any) => (row?._id === id ? { ...row, ...patch } : row));
+    if (old && typeof old === 'object' && (old as Any).lead?._id === id) {
+      const bag = old as Any;
+      return { ...bag, lead: { ...bag.lead, ...patch } };
+    }
+    return old;
   });
 }
 
-function useSalesAction<V = unknown>(fn: (v: V) => Promise<unknown>, success?: string, after?: (r: any) => void, paths: string[] | 'all' = 'all') {
+function useSalesAction<V = unknown>(fn: (v: V) => Promise<unknown>, success?: string, after?: (r: any) => void) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,
-    onSuccess: (r) => {
-      if (success) toast.success(success);
-      if (paths === 'all') invalidateSales(qc);
-      else invalidateSales(qc, paths);
-      after?.(r);
-    },
+    onSuccess: (r) => { if (success) toast.success(success); void qc.invalidateQueries({ queryKey: ['sales'] }); after?.(r); },
     onError: onErr,
+  });
+}
+
+function useLeadRowAction<V extends { id: string }>(fn: (v: V) => Promise<unknown>, success: string, patchFor: (v: V) => Record<string, unknown>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onMutate: (v) => {
+      patchLeadRows(qc, v.id, patchFor(v));
+    },
+    onSuccess: () => toast.success(success),
+    onError: (e) => {
+      onErr(e);
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'sales' && isLeadsQuery(q.queryKey[1]) });
+    },
   });
 }
 
@@ -193,7 +209,7 @@ function InlineNoteCell({ id, notes }: { id: string; notes?: string }) {
     setText(notes || '');
     last.current = notes || '';
   }, [id, notes]);
-  const save = useSalesAction((v: string) => api.data(`/sales-crm/leads/${id}`, 'PATCH', { notes: v }), 'Note saved');
+  const save = useLeadRowAction((v: { id: string; notes: string }) => api.data(`/sales-crm/leads/${v.id}`, 'PATCH', { notes: v.notes }), 'Note saved', (v) => ({ notes: v.notes }));
   return (
     <Input
       className="box-border h-8 w-[11.5rem] min-w-[11.5rem] max-w-[11.5rem] px-2.5 py-0 text-xs leading-8"
@@ -204,7 +220,7 @@ function InlineNoteCell({ id, notes }: { id: string; notes?: string }) {
         const next = text.trim();
         if (next === last.current.trim()) return;
         last.current = next;
-        save.mutate(next);
+        save.mutate({ id, notes: next });
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter') e.currentTarget.blur();
@@ -596,18 +612,40 @@ export function SalesLeadsPage() {
     return map;
   }, [dealsQ.data]);
   const [open, setOpen] = useState(false);
-  const leadPaths = ['/leads', '/dashboard', '/my-day', '/activity', '/calls', '/deals'];
-  const create = useSalesAction((v: Any) => post('/leads', v), 'Lead created', () => setOpen(false), leadPaths);
-  const setStatus = useSalesAction((v: { id: string; status: string }) => post(`/leads/${v.id}/status`, { status: v.status }), 'Status updated', undefined, leadPaths);
-  const setTemp = useSalesAction((v: { id: string; temperature: string }) => api.data(`/sales-crm/leads/${v.id}`, 'PATCH', { temperature: v.temperature }), 'Temperature updated', undefined, leadPaths);
-  const logCall = useSalesAction((v: { id: string; outcome: string }) => post('/calls', { leadId: v.id, outcome: v.outcome }), 'Call logged', undefined, leadPaths);
-  const scheduleCb = useSalesAction((v: { id: string; dueAt: string }) => post('/follow-ups', { leadId: v.id, dueAt: v.dueAt, type: 'call', notes: 'Callback' }), 'Callback scheduled', undefined, leadPaths);
-  const moveDeal = useSalesAction((v: { id: string; stage: string }) => post(`/deals/${v.id}/stage`, { stage: v.stage }), 'Deal stage updated', undefined, leadPaths);
-  const startDeal = useSalesAction(async (v: { leadId: string; name: string; stage: string }) => {
-    const created = await post('/deals', { dealName: v.name, leadId: v.leadId, probability: 10, priority: 'medium' }) as Any;
-    if (v.stage && v.stage !== 'new') await post(`/deals/${created._id}/stage`, { stage: v.stage });
-    return created;
-  }, 'Deal stage updated', undefined, leadPaths);
+  const qc = useQueryClient();
+  const create = useSalesAction((v: Any) => post('/leads', v), 'Lead created', () => setOpen(false));
+  const setStatus = useLeadRowAction((v: { id: string; status: string }) => post(`/leads/${v.id}/status`, { status: v.status }), 'Status updated', (v) => ({ status: v.status }));
+  const setTemp = useLeadRowAction((v: { id: string; temperature: string }) => api.data(`/sales-crm/leads/${v.id}`, 'PATCH', { temperature: v.temperature }), 'Temperature updated', (v) => ({ temperature: v.temperature }));
+  const logCall = useLeadRowAction((v: { id: string; outcome: string; status?: string }) => post('/calls', { leadId: v.id, outcome: v.outcome }), 'Call logged', (v) => ({
+    lastCallOutcome: v.outcome,
+    lastContactedAt: new Date().toISOString(),
+    ...(v.status ? { status: v.status } : {}),
+  }));
+  const scheduleCb = useLeadRowAction((v: { id: string; dueAt: string }) => post('/follow-ups', { leadId: v.id, dueAt: v.dueAt, type: 'call', notes: 'Callback' }), 'Callback scheduled', (v) => ({ nextFollowUpAt: v.dueAt }));
+  const moveDeal = useMutation({
+    mutationFn: (v: { id: string; stage: string }) => post(`/deals/${v.id}/stage`, { stage: v.stage }),
+    onMutate: (v) => {
+      qc.setQueriesData({ predicate: (q) => q.queryKey[0] === 'sales' && String(q.queryKey[1] || '').startsWith('/deals') }, (old: unknown) => (
+        Array.isArray(old) ? old.map((d: Any) => (d._id === v.id ? { ...d, stage: v.stage } : d)) : old
+      ));
+    },
+    onSuccess: () => toast.success('Deal stage updated'),
+    onError: onErr,
+  });
+  const startDeal = useMutation({
+    mutationFn: async (v: { leadId: string; name: string; stage: string }) => {
+      const created = await post('/deals', { dealName: v.name, leadId: v.leadId, probability: 10, priority: 'medium' }) as Any;
+      if (v.stage && v.stage !== 'new') await post(`/deals/${created._id}/stage`, { stage: v.stage });
+      return { ...created, stage: v.stage || created.stage, leadId: v.leadId };
+    },
+    onSuccess: (created) => {
+      toast.success('Deal stage updated');
+      qc.setQueriesData({ predicate: (q) => q.queryKey[0] === 'sales' && String(q.queryKey[1] || '').startsWith('/deals') }, (old: unknown) => (
+        Array.isArray(old) ? [created, ...old] : old
+      ));
+    },
+    onError: onErr,
+  });
   const activeFilters = [
     filter.status !== 'all', filter.temperature, filter.source, filter.priority, filter.datePreset !== 'all',
     filter.followUp, filter.dealStage, filter.assignedEmployeeId, filter.unassigned, filter.search,
@@ -748,10 +786,10 @@ export function SalesLeadsPage() {
                       <Phone className="h-3.5 w-3.5" />
                     </Button>
                     <StageSelect
-                      value=""
+                      value={r.lastCallOutcome || ''}
                       placeholder="Log…"
                       options={[{ value: 'connected', label: 'Connected' }, ...CALL_OUTCOMES.map((o) => ({ value: o.value, label: o.label }))]}
-                      onChange={(outcome) => outcome && logCall.mutate({ id: r._id, outcome })}
+                      onChange={(outcome) => outcome && logCall.mutate({ id: r._id, outcome, status: r.status === 'new' ? 'contacted' : undefined })}
                     />
                   </div>
                 ),
@@ -779,6 +817,7 @@ export function SalesLeadsPage() {
                   <Input
                     type="datetime-local"
                     className={rowInputClass}
+                    key={`${r._id}-${r.nextFollowUpAt || ''}`}
                     defaultValue={toDatetimeLocal(r.nextFollowUpAt)}
                     onBlur={(e) => {
                       if (!e.target.value) return;
@@ -1292,19 +1331,28 @@ export function SalesCallsPage() {
     <>
       <div className="flex justify-end"><Button onClick={() => setOpen(true)}><Phone className="mr-2 h-4 w-4" />Log call</Button></div>
       <Query q={q}>
-        {(rows) => (
-          <DataTable rows={rows} empty="No calls logged."
-            columns={[
-              { key: 'lead', header: 'Lead', render: (r) => r.leadId ? <Link className="hover:underline" to={`${basePath}/leads/${r.leadId._id}`}>{leadLabel(r.leadId)}</Link> : '—' },
-              { key: 'outcome', header: 'Outcome', render: (r) => <StatusPill value={r.outcome} /> },
-              { key: 'durationMinutes', header: 'Duration', render: (r) => formatStoredDuration(r) || '—' },
-              { key: 'notes', header: 'Notes', render: (r) => <span className="line-clamp-1">{r.notes || '—'}</span> },
-              { key: 'calledAt', header: 'When', render: (r) => fmtDateTime(r.calledAt || r.createdAt) },
-            ]} />
-        )}
+        {(rows) => {
+          const connected = rows.filter((r) => r.outcome === 'connected');
+          return (
+            <>
+              <PageGrid cols="2">
+                <StatCard label="Dialed" value={rows.length} hint="Every call you logged" />
+                <StatCard label="Connected" value={connected.length} hint="Calls that connected" tone="success" />
+              </PageGrid>
+              <DataTable rows={connected} empty="No connected calls yet."
+                columns={[
+                  { key: 'lead', header: 'Lead', render: (r) => r.leadId ? <Link className="hover:underline" to={`${basePath}/leads/${r.leadId._id}`}>{leadLabel(r.leadId)}</Link> : '—' },
+                  { key: 'outcome', header: 'Outcome', render: (r) => <StatusPill value={r.outcome} /> },
+                  { key: 'durationMinutes', header: 'Duration', render: (r) => formatStoredDuration(r) || '—' },
+                  { key: 'notes', header: 'Notes', render: (r) => <span className="line-clamp-1">{r.notes || '—'}</span> },
+                  { key: 'calledAt', header: 'When', render: (r) => fmtDateTime(r.calledAt || r.createdAt) },
+                ]} />
+            </>
+          );
+        }}
       </Query>
-      <FormModal open={open} onClose={() => setOpen(false)} title="Log call" initial={{ outcome: 'interested' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)} fields={[
-        { name: 'leadId', label: 'Lead', type: 'select', options: leads }, { name: 'outcome', label: 'Outcome', type: 'select', options: CALL_OUTCOMES, required: true },
+      <FormModal open={open} onClose={() => setOpen(false)} title="Log call" initial={{ outcome: 'connected' }} pending={create.isPending} onSubmit={(v) => create.mutate(v)} fields={[
+        { name: 'leadId', label: 'Lead', type: 'select', options: leads }, { name: 'outcome', label: 'Outcome', type: 'select', options: [{ value: 'connected', label: 'Connected' }, ...CALL_OUTCOMES], required: true },
         { name: 'durationMinutes', label: 'Duration (min)', type: 'number' }, { name: 'notes', label: 'Notes', type: 'textarea' },
         { name: 'nextAction', label: 'Next action' }, { name: 'nextFollowUpAt', label: 'Next follow-up', type: 'datetime' },
       ]} />
