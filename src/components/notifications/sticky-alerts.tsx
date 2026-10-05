@@ -14,7 +14,9 @@ export function StickyAlerts({ orgSlug }: { orgSlug?: string }) {
   const { data } = useQuery({
     queryKey: ['sticky-notifications'],
     queryFn: () => api.get<Notification[]>('/notifications/sticky'),
-    refetchInterval: 12_000,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
   });
 
   const dismiss = useMutation({

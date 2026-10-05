@@ -244,8 +244,14 @@ export function LeadCallProvider({
       });
       toast.success('Call saved');
       finishUi();
+      // Optimistic lead patch + mark other screens stale without refetching everything now.
+      qc.setQueriesData({ predicate: (q) => q.queryKey[0] === 'sales' && String(q.queryKey[1] || '').includes('/leads') }, (old: unknown) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((row: { _id?: string }) => (row?._id === leadId ? { ...row, lastCallOutcome: outcome, lastContactedAt: new Date().toISOString() } : row));
+      });
       void qc.invalidateQueries({
-        predicate: (q) => q.queryKey[0] === 'sales' && ['/leads', '/calls', '/dashboard', '/my-day', '/activity'].some((p) => String(q.queryKey[1] || '').startsWith(p)),
+        predicate: (q) => q.queryKey[0] === 'sales' && ['/calls', '/dashboard', '/my-day', '/activity', '/follow-ups'].some((p) => String(q.queryKey[1] || '').startsWith(p)),
+        refetchType: 'none',
       });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not save the call');

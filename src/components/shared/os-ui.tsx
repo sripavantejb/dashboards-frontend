@@ -200,14 +200,15 @@ export interface Column<T = AnyRow> {
 }
 
 export function DataTable<T extends AnyRow = AnyRow>({ columns, rows, onRowClick, empty = 'Nothing here yet', selectedId, compact }: { columns: Column<T>[]; rows: T[]; onRowClick?: (row: T) => void; empty?: string; selectedId?: string; compact?: boolean }) {
-  const cell = compact ? 'px-2.5 py-2' : 'px-4 py-3';
+  const headCell = compact ? 'px-3 py-2.5' : 'px-4 py-3';
+  const cell = compact ? 'px-3 py-2' : 'px-4 py-3';
   return (
-    <div className="overflow-x-auto rounded-lg border bg-card shadow-card">
-      <table className="w-full text-sm">
+    <div className="overflow-x-auto rounded-xl border border-black/[0.06] bg-card shadow-card">
+      <table className="w-full border-collapse text-sm">
         <thead>
-          <tr className="border-b bg-surface-soft/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b border-black/[0.06] bg-surface-soft/50 text-left text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
             {columns.map((c) => (
-              <th key={c.key} className={cn('whitespace-nowrap font-medium', cell, c.className)}>{c.header}</th>
+              <th key={c.key} className={cn('whitespace-nowrap align-middle', headCell, c.className)}>{c.header}</th>
             ))}
           </tr>
         </thead>
@@ -224,9 +225,9 @@ export function DataTable<T extends AnyRow = AnyRow>({ columns, rows, onRowClick
                   onRowClick(row);
                 } : undefined}
                 className={cn(
-                  'border-b last:border-0 transition-colors',
-                  onRowClick && 'cursor-pointer hover:bg-surface-soft/60',
-                  selectedId && (row._id === selectedId || row.id === selectedId) && 'bg-surface-soft'
+                  'border-b border-black/[0.04] last:border-0 transition-colors',
+                  onRowClick && 'cursor-pointer hover:bg-surface-soft/50',
+                  selectedId && (row._id === selectedId || row.id === selectedId) && 'bg-surface-soft/80'
                 )}
               >
                 {columns.map((c) => (

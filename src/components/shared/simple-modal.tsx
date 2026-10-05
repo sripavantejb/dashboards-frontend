@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { cn } from '@/lib/utils';
 import { modalBackdrop, modalContent } from '@/lib/motion';
 
 export function SimpleModal({
@@ -7,13 +8,19 @@ export function SimpleModal({
   onClose,
   title,
   children,
+  className,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  className?: string;
 }) {
   const reduceMotion = useReducedMotion();
+  const panel = cn(
+    'relative z-10 w-full max-w-lg rounded-lg border bg-background p-6 shadow-lg max-h-[90vh] overflow-y-auto',
+    className,
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -30,7 +37,7 @@ export function SimpleModal({
     return (
       <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-        <div className="relative z-10 w-full max-w-lg rounded-lg border bg-background p-6 shadow-lg max-h-[90vh] overflow-y-auto">
+        <div className={panel}>
           <h2 className="font-display text-lg font-semibold mb-4">{title}</h2>
           {children}
         </div>
@@ -51,7 +58,7 @@ export function SimpleModal({
             onClick={onClose}
           />
           <motion.div
-            className="relative z-10 w-full max-w-lg rounded-lg border bg-background p-6 shadow-lg max-h-[90vh] overflow-y-auto"
+            className={panel}
             variants={modalContent}
             initial="hidden"
             animate="visible"

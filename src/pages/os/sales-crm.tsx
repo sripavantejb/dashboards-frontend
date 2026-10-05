@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router';
-import { ArrowLeft, Check, ChevronDown, Copy, FilterX, LayoutGrid, List, LogIn, LogOut, Phone, Plus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, Copy, FilterX, LayoutGrid, List, LogIn, LogOut, Phone, Plus, Trash2, Upload, X } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -19,6 +19,7 @@ import { CALL_OUTCOMES, formatStoredDuration } from '@/lib/calling';
 import { leadHref, leadIdOf } from '@/lib/portal-href';
 import { CallAnalytics } from '@/components/sales/call-analytics';
 import { CheckoutModal } from '@/components/sales/checkout-modal';
+import { LeadBulkImportModal } from '@/components/sales/lead-bulk-import';
 import { CallHistory, LeadCallProvider, useLeadCall } from '@/components/sales/lead-call';
 
 type Any = Record<string, any>;
@@ -59,8 +60,22 @@ const usePortalPath = () => {
   return (...parts: string[]) => [basePath, ...parts.filter(Boolean)].join('/');
 };
 
+function salesPathMatch(key: unknown, paths: string[]) {
+  const path = String(key || '');
+  return paths.some((p) => path === p || path.startsWith(`${p}?`) || path.startsWith(`${p}/`));
+}
+
 function useSales<T = any>(path: string, enabled = true) {
-  return useQuery({ queryKey: ['sales', path], queryFn: () => api.data<T>(`/sales-crm${path}`), enabled });
+  return useQuery({
+    queryKey: ['sales', path],
+    queryFn: () => api.data<T>(`/sales-crm${path}`),
+    enabled,
+    staleTime: 45_000,
+    gcTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
 }
 
 function isLeadsQuery(key: unknown) {
@@ -79,41 +94,43 @@ function patchLeadRows(qc: ReturnType<typeof useQueryClient>, id: string, patch:
   });
 }
 
-function useSalesAction<V = unknown>(fn: (v: V) => Promise<unknown>, success?: string, after?: (r: any) => void) {
+/** Mark caches stale without a network storm. Active screens refetch only when paths are listed. */
+function touchSales(qc: ReturnType<typeof useQueryClient>, paths?: string[], refetchActive = false) {
+  void qc.invalidateQueries({
+    predicate: (q) => q.queryKey[0] === 'sales' && (!paths?.length || salesPathMatch(q.queryKey[1], paths)),
+    refetchType: refetchActive ? 'active' : 'none',
+  });
+}
+
+function useSalesAction<V = unknown>(fn: (v: V) => Promise<unknown>, success?: string, after?: (r: any) => void, paths: string[] = ['/leads', '/deals', '/calls', '/follow-ups', '/dashboard', '/my-day']) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,
-    onSuccess: (r) => { if (success) toast.success(success); void qc.invalidateQueries({ queryKey: ['sales'] }); after?.(r); },
+    onSuccess: (r) => {
+      if (success) toast.success(success);
+      touchSales(qc, paths, true);
+      after?.(r);
+    },
     onError: onErr,
   });
 }
 
-const RELATED_SALES = ['/leads', '/calls', '/follow-ups', '/deals', '/customers', '/dashboard', '/my-day', '/activity', '/meetings', '/messages', '/stage-targets', '/targets'];
-
-function invalidateRelatedSales(qc: ReturnType<typeof useQueryClient>, extra: string[] = []) {
-  const paths = [...RELATED_SALES, ...extra];
-  void qc.invalidateQueries({
-    predicate: (q) => q.queryKey[0] === 'sales' && paths.some((p) => {
-      const key = String(q.queryKey[1] || '');
-      return key === p || key.startsWith(`${p}?`) || key.startsWith(`${p}/`);
-    }),
-  });
-}
-
-function useLeadRowAction<V extends { id: string }>(fn: (v: V) => Promise<unknown>, success: string, patchFor: (v: V) => Record<string, unknown>, related = true) {
+function useLeadRowAction<V extends { id: string }>(fn: (v: V) => Promise<unknown>, success: string, patchFor: (v: V) => Record<string, unknown>, stalePaths: string[] = []) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,
-    onMutate: (v) => {
+    onMutate: async (v) => {
+      await qc.cancelQueries({ predicate: (q) => q.queryKey[0] === 'sales' && isLeadsQuery(q.queryKey[1]) });
       patchLeadRows(qc, v.id, patchFor(v));
     },
     onSuccess: () => {
       toast.success(success);
-      if (related) invalidateRelatedSales(qc);
+      // Row already updated locally — only mark sibling pages stale for the next visit.
+      if (stalePaths.length) touchSales(qc, stalePaths, false);
     },
     onError: (e) => {
       onErr(e);
-      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'sales' && isLeadsQuery(q.queryKey[1]) });
+      touchSales(qc, ['/leads'], true);
     },
   });
 }
@@ -122,8 +139,10 @@ const post = (path: string, body: unknown = {}) => api.data(`/sales-crm${path}`,
 
 const isBdaPortal = (basePath: string) => basePath.includes('/bda');
 
-const inlineSelectClass = 'h-8 w-[8.5rem] min-w-[8.5rem] max-w-[8.5rem] cursor-pointer appearance-none py-0 pl-2 pr-8 text-xs leading-8';
-const rowInputClass = 'box-border h-8 w-[11.5rem] min-w-[11.5rem] max-w-[11.5rem] px-2.5 py-0 text-xs leading-8';
+const ROW_CTRL = 'box-border h-8 min-h-8 max-h-8 py-0 text-xs leading-8';
+const inlineSelectClass = cn(ROW_CTRL, 'w-[7.75rem] min-w-[7.75rem] max-w-[7.75rem] cursor-pointer appearance-none pl-2 pr-7');
+const rowInputClass = cn(ROW_CTRL, 'w-[10.5rem] min-w-[10.5rem] max-w-[10.5rem] px-2.5');
+const rowNoteClass = cn(ROW_CTRL, 'w-[9.5rem] min-w-[9.5rem] max-w-[9.5rem] px-2.5');
 
 function StageSelect({
   value,
@@ -203,8 +222,8 @@ const EMPTY_LEAD_FILTER = {
 
 function FilterField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex min-w-0 flex-col gap-1">
-      <span className="h-4 truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</span>
+    <label className="flex min-w-0 flex-col gap-1.5">
+      <span className="truncate text-[11px] font-medium text-muted-foreground">{label}</span>
       {children}
     </label>
   );
@@ -228,7 +247,7 @@ function InlineNoteCell({ id, notes }: { id: string; notes?: string }) {
   const save = useLeadRowAction((v: { id: string; notes: string }) => api.data(`/sales-crm/leads/${v.id}`, 'PATCH', { notes: v.notes }), 'Note saved', (v) => ({ notes: v.notes }));
   return (
     <Input
-      className="box-border h-8 w-[11.5rem] min-w-[11.5rem] max-w-[11.5rem] px-2.5 py-0 text-xs leading-8"
+      className={rowNoteClass}
       placeholder="Add note…"
       value={text}
       onChange={(e) => setText(e.target.value)}
@@ -308,9 +327,10 @@ function FormModal({ open, onClose, title, fields, initial = {}, submitLabel = '
   );
 }
 
-function Query<T>({ q, children }: { q: { data?: T; isLoading: boolean; isError: boolean; error: Error | null; refetch: () => unknown }; children: (d: T) => React.ReactNode }) {
-  if (q.isError) return <PageError message={q.error?.message} onRetry={() => q.refetch()} />;
-  if (q.isLoading || q.data === undefined) return <PageLoading />;
+function Query<T>({ q, children }: { q: { data?: T; isLoading: boolean; isError: boolean; error: Error | null; refetch: () => unknown; isFetching?: boolean }; children: (d: T) => React.ReactNode }) {
+  if (q.isError && q.data === undefined) return <PageError message={q.error?.message} onRetry={() => q.refetch()} />;
+  // Keep prior rows visible while filters refetch — never blank the table on every keystroke.
+  if (q.data === undefined) return <PageLoading />;
   return <>{children(q.data)}</>;
 }
 
@@ -620,11 +640,17 @@ export function SalesLeadsPage() {
   const selectedId = searchParams.get('lead');
   const [callingLead, setCallingLead] = useState<Any | null>(null);
   const [filter, setFilter] = useState(EMPTY_LEAD_FILTER);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearch(searchInput.trim()), 350);
+    return () => window.clearTimeout(t);
+  }, [searchInput]);
   const dates = filter.datePreset === 'custom' ? { from: filter.from, to: filter.to } : presetRange(filter.datePreset);
   const qs = new URLSearchParams({
     status: filter.status,
     ...(filter.temperature && { temperature: filter.temperature }),
-    ...(filter.search && { search: filter.search }),
+    ...(search && { search }),
     ...(filter.source && { source: filter.source }),
     ...(filter.priority && { priority: filter.priority }),
     ...(filter.unassigned && { unassigned: 'true' }),
@@ -645,16 +671,17 @@ export function SalesLeadsPage() {
     return map;
   }, [dealsQ.data]);
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const qc = useQueryClient();
-  const create = useSalesAction((v: Any) => post('/leads', v), 'Lead created', () => setOpen(false));
-  const setStatus = useLeadRowAction((v: { id: string; status: string }) => post(`/leads/${v.id}/status`, { status: v.status }), 'Status updated', (v) => ({ status: v.status }));
+  const create = useSalesAction((v: Any) => post('/leads', v), 'Lead created', () => setOpen(false), ['/leads', '/dashboard', '/my-day']);
+  const setStatus = useLeadRowAction((v: { id: string; status: string }) => post(`/leads/${v.id}/status`, { status: v.status }), 'Status updated', (v) => ({ status: v.status }), ['/dashboard', '/my-day']);
   const setTemp = useLeadRowAction((v: { id: string; temperature: string }) => api.data(`/sales-crm/leads/${v.id}`, 'PATCH', { temperature: v.temperature }), 'Temperature updated', (v) => ({ temperature: v.temperature }));
   const logCall = useLeadRowAction((v: { id: string; outcome: string; status?: string }) => post('/calls', { leadId: v.id, outcome: v.outcome }), 'Call logged', (v) => ({
     lastCallOutcome: v.outcome,
     lastContactedAt: new Date().toISOString(),
     ...(v.status ? { status: v.status } : {}),
-  }));
-  const scheduleCb = useLeadRowAction((v: { id: string; dueAt: string }) => post('/follow-ups', { leadId: v.id, dueAt: v.dueAt, type: 'call', notes: 'Callback' }), 'Callback scheduled', (v) => ({ nextFollowUpAt: v.dueAt }));
+  }), ['/calls', '/dashboard', '/my-day']);
+  const scheduleCb = useLeadRowAction((v: { id: string; dueAt: string }) => post('/follow-ups', { leadId: v.id, dueAt: v.dueAt, type: 'call', notes: 'Callback' }), 'Callback scheduled', (v) => ({ nextFollowUpAt: v.dueAt }), ['/follow-ups', '/my-day', '/dashboard']);
   const moveDeal = useMutation({
     mutationFn: (v: { id: string; stage: string }) => post(`/deals/${v.id}/stage`, { stage: v.stage }),
     onMutate: (v) => {
@@ -664,7 +691,7 @@ export function SalesLeadsPage() {
     },
     onSuccess: (_r, v) => {
       toast.success(v.stage === 'won' ? 'Deal won — customer created' : 'Deal stage updated');
-      invalidateRelatedSales(qc);
+      touchSales(qc, v.stage === 'won' ? ['/customers', '/dashboard', '/my-day'] : ['/dashboard'], false);
     },
     onError: onErr,
   });
@@ -679,7 +706,7 @@ export function SalesLeadsPage() {
       qc.setQueriesData({ predicate: (q) => q.queryKey[0] === 'sales' && String(q.queryKey[1] || '').startsWith('/deals') }, (old: unknown) => (
         Array.isArray(old) ? [created, ...old] : old
       ));
-      invalidateRelatedSales(qc);
+      touchSales(qc, created.stage === 'won' ? ['/customers', '/dashboard'] : ['/dashboard'], false);
     },
     onError: onErr,
   });
@@ -694,11 +721,11 @@ export function SalesLeadsPage() {
     },
     onSuccess: () => {
       toast.success('Lead deleted');
-      invalidateRelatedSales(qc);
+      touchSales(qc, ['/dashboard', '/my-day', '/deals', '/calls', '/follow-ups', '/meetings'], true);
     },
     onError: (e) => {
       onErr(e);
-      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'sales' && isLeadsQuery(q.queryKey[1]) });
+      touchSales(qc, ['/leads'], true);
     },
   });
   const openLead = (id: string) => {
@@ -710,23 +737,28 @@ export function SalesLeadsPage() {
   };
   const activeFilters = [
     filter.status !== 'all', filter.temperature, filter.source, filter.priority, filter.datePreset !== 'all',
-    filter.followUp, filter.dealStage, filter.assignedEmployeeId, filter.unassigned, filter.search,
+    filter.followUp, filter.dealStage, filter.assignedEmployeeId, filter.unassigned, searchInput,
   ].filter(Boolean).length;
   const patchFilter = (next: Partial<typeof EMPTY_LEAD_FILTER>) => setFilter((s) => ({ ...s, ...next }));
-  const filterSelect = 'h-9 w-full min-w-0 py-0 pl-2.5 pr-8 text-sm leading-9';
+  const filterSelect = 'h-9 w-full min-w-0 border-black/[0.08] bg-white py-0 pl-2.5 pr-8 text-[13px] leading-9';
   return (
     <>
-      <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 shadow-card">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Input placeholder="Search name, company, phone…" value={filter.search} onChange={(e) => patchFilter({ search: e.target.value })} className="h-9 sm:max-w-xs" />
-          {activeFilters > 0 && (
-            <Button variant="ghost" size="sm" className="h-9" onClick={() => setFilter(EMPTY_LEAD_FILTER)}>
-              <FilterX className="mr-1.5 h-4 w-4" />Clear filters ({activeFilters})
+      <div className="rounded-xl border border-black/[0.06] bg-card shadow-card">
+        <div className="flex flex-col gap-3 border-b border-black/[0.05] px-4 py-3 sm:flex-row sm:items-center sm:gap-3">
+          <Input placeholder="Search name, company, phone…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="h-9 border-black/[0.08] bg-white sm:max-w-sm" />
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+            {activeFilters > 0 && (
+              <Button variant="ghost" size="sm" className="h-9" onClick={() => { setFilter(EMPTY_LEAD_FILTER); setSearchInput(''); setSearch(''); }}>
+                <FilterX className="mr-1.5 h-4 w-4" />Clear ({activeFilters})
+              </Button>
+            )}
+            <Button type="button" variant="outline" className="h-9" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />Bulk import
             </Button>
-          )}
-          <Button className="h-9 sm:ml-auto" onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New lead</Button>
+            <Button className="h-9" onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New lead</Button>
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-x-2 gap-y-2 sm:grid-cols-4 xl:grid-cols-8">
+        <div className="grid grid-cols-2 gap-3 px-4 py-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
           <FilterField label="Status">
             <Select className={filterSelect} value={filter.status} onChange={(e) => patchFilter({ status: e.target.value })}>
               <option value="all">All statuses</option>
@@ -773,10 +805,10 @@ export function SalesLeadsPage() {
           {filter.datePreset === 'custom' && (
             <>
               <FilterField label="From">
-                <Input type="date" className="h-9 w-full py-0 text-sm leading-9" value={filter.from} onChange={(e) => patchFilter({ from: e.target.value })} />
+                <Input type="date" className="h-9 w-full border-black/[0.08] bg-white py-0 text-[13px] leading-9" value={filter.from} onChange={(e) => patchFilter({ from: e.target.value })} />
               </FilterField>
               <FilterField label="To">
-                <Input type="date" className="h-9 w-full py-0 text-sm leading-9" value={filter.to} onChange={(e) => patchFilter({ to: e.target.value })} />
+                <Input type="date" className="h-9 w-full border-black/[0.08] bg-white py-0 text-[13px] leading-9" value={filter.to} onChange={(e) => patchFilter({ to: e.target.value })} />
               </FilterField>
             </>
           )}
@@ -822,26 +854,26 @@ export function SalesLeadsPage() {
             empty="No leads match."
             onRowClick={(r) => openLead(r._id)}
             columns={[
-              { key: 'contactPerson', header: 'Lead', render: (r) => (
-                <button type="button" className="min-w-0 text-left" onClick={(e) => { e.stopPropagation(); openLead(r._id); }}>
-                  <p className="font-medium hover:underline">{r.contactPerson}</p>
-                  <p className="text-xs text-muted-foreground">{r.company || r.phone || '—'}</p>
+              { key: 'contactPerson', header: 'Lead', className: 'min-w-[11rem] max-w-[14rem]', render: (r) => (
+                <button type="button" className="block w-full max-w-[13rem] text-left" onClick={(e) => { e.stopPropagation(); openLead(r._id); }}>
+                  <p className="truncate text-[13px] font-semibold leading-5 tracking-tight hover:underline">{r.contactPerson}</p>
+                  <p className="truncate text-[11px] leading-4 text-muted-foreground">{r.company || r.phone || '—'}</p>
                 </button>
               ) },
-              { key: 'status', header: 'Status', className: 'w-px', render: (r) => (
+              { key: 'status', header: 'Status', className: 'w-[8.25rem]', render: (r) => (
                 <StageSelect value={r.status} options={LEAD_STATUSES} onChange={(status) => setStatus.mutate({ id: r._id, status })} />
               ) },
-              { key: 'temperature', header: 'Temp.', className: 'w-px', render: (r) => (
+              { key: 'temperature', header: 'Temp.', className: 'w-[8.25rem]', render: (r) => (
                 <StageSelect value={r.temperature || 'warm'} options={['hot', 'warm', 'cold']} onChange={(temperature) => setTemp.mutate({ id: r._id, temperature })} />
               ) },
               ...(me.modules['comm.calls'] ? [{
-                key: 'call', header: 'Call', className: 'w-px', render: (r: Any) => (
-                  <div className="flex items-center gap-1.5">
+                key: 'call', header: 'Call', className: 'w-[11rem]', render: (r: Any) => (
+                  <div className="flex h-8 items-center gap-1.5">
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="h-8 w-8 shrink-0 px-0"
+                      className="h-8 w-8 shrink-0 border-black/10 px-0"
                       disabled={!String(r.phone || '').trim() || callingLead?._id === r._id}
                       title={String(r.phone || '').trim() ? `Call ${r.phone}` : 'Add a phone number first'}
                       aria-label={String(r.phone || '').trim() ? `Call ${r.contactPerson}` : 'No phone number'}
@@ -853,6 +885,7 @@ export function SalesLeadsPage() {
                       <Phone className="h-3.5 w-3.5" />
                     </Button>
                     <StageSelect
+                      className="w-[7.25rem] min-w-[7.25rem] max-w-[7.25rem]"
                       value={r.lastCallOutcome || ''}
                       placeholder="Log…"
                       options={[{ value: 'connected', label: 'Connected' }, ...CALL_OUTCOMES.map((o) => ({ value: o.value, label: o.label }))]}
@@ -862,7 +895,7 @@ export function SalesLeadsPage() {
                 ),
               }] : []),
               ...(me.modules['sales.deals'] ? [{
-                key: 'dealStage', header: 'Deal stage', className: 'w-px', render: (r: Any) => {
+                key: 'dealStage', header: 'Deal stage', className: 'w-[8.25rem]', render: (r: Any) => {
                   const deal = dealByLead.get(r._id);
                   return (
                     <StageSelect
@@ -878,12 +911,12 @@ export function SalesLeadsPage() {
                   );
                 },
               }] : []),
-              { key: 'notes', header: 'Notes', render: (r) => <InlineNoteCell id={r._id} notes={r.notes} /> },
+              { key: 'notes', header: 'Notes', className: 'w-[10rem]', render: (r) => <InlineNoteCell id={r._id} notes={r.notes} /> },
               ...(me.modules['comm.followups'] ? [{
-                key: 'callback', header: 'Callback', className: 'w-px', render: (r: Any) => (
+                key: 'callback', header: 'Callback', className: 'w-[11rem]', render: (r: Any) => (
                   <Input
                     type="datetime-local"
-                    className={rowInputClass}
+                    className={cn(rowInputClass, 'border-black/10 bg-white')}
                     key={`${r._id}-${r.nextFollowUpAt || ''}`}
                     defaultValue={toDatetimeLocal(r.nextFollowUpAt)}
                     onBlur={(e) => {
@@ -896,13 +929,13 @@ export function SalesLeadsPage() {
                   />
                 ),
               }] : []),
-              ...(me.isSalesAdmin ? [{ key: 'assignedName', header: 'Owner', render: (r: Any) => r.assignedName || <span className="text-amber-600">Unassigned</span> }] : []),
-              { key: 'actions', header: '', className: 'w-px', render: (r) => (
+              ...(me.isSalesAdmin ? [{ key: 'assignedName', header: 'Owner', className: 'min-w-[7rem]', render: (r: Any) => <span className="text-[13px]">{r.assignedName || <span className="text-amber-600">Unassigned</span>}</span> }] : []),
+              { key: 'actions', header: '', className: 'w-10', render: (r) => (
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-8 w-8 shrink-0 px-0 text-error hover:bg-error/10 hover:text-error"
+                  className="h-8 w-8 shrink-0 px-0 text-muted-foreground hover:bg-error/10 hover:text-error"
                   title="Delete lead"
                   aria-label={`Delete ${r.contactPerson}`}
                   disabled={removeLead.isPending}
@@ -919,6 +952,11 @@ export function SalesLeadsPage() {
         )}
       </Query>
       <FormModal open={open} onClose={() => setOpen(false)} title="New lead" fields={LEAD_FIELDS} initial={{ source: 'website', temperature: 'warm', priority: 'medium' }} onSubmit={(v) => create.mutate(v)} pending={create.isPending} />
+      <LeadBulkImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => touchSales(qc, ['/leads', '/dashboard', '/my-day', '/follow-ups', '/calls'], true)}
+      />
       {drawer && (
         <RightInspector open={Boolean(selectedId)} onClose={() => setSearchParams({})}>
           {selectedId && <LeadInspector id={selectedId} onClose={() => setSearchParams({})} />}

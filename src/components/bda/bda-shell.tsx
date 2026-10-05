@@ -67,14 +67,18 @@ export function BdaShell({ children, modules, employeeCode, displayName, basePat
   const { data: notifData } = useQuery({
     queryKey: ['notifications-count'],
     queryFn: () => api.get<{ count: number }>('/notifications/unread-count'),
-    refetchInterval: 30_000,
+    staleTime: 60_000,
+    refetchInterval: 90_000,
+    refetchOnWindowFocus: false,
   });
   const unread = notifData?.data?.count || 0;
 
   const attendance = useQuery({
     queryKey: ['sales', '/attendance'],
     queryFn: () => api.data<{ today?: { checkInAt?: string; checkOutAt?: string } | null }>('/sales-crm/attendance'),
-    refetchInterval: 60_000,
+    staleTime: 120_000,
+    refetchInterval: 180_000,
+    refetchOnWindowFocus: false,
   });
   const needsCheckout = !attendance.data?.today?.checkOutAt;
 
@@ -250,18 +254,16 @@ export function BdaShell({ children, modules, employeeCode, displayName, basePat
         </div>
       </header>
 
-      <motion.main
-        layout
+      <main
         className={cn(
           'min-h-screen pt-[4.25rem] transition-[padding] duration-300 ease-out',
           sidebarCollapsed ? 'md:pl-[72px]' : 'md:pl-[var(--sidebar-width)]'
         )}
-        transition={{ duration: reduceMotion ? 0 : 0.3, ease: [0.25, 0.1, 0.25, 1] }}
       >
         <div className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           <AnimatedPage>{children}</AnimatedPage>
         </div>
-      </motion.main>
+      </main>
       <CheckoutModal
         open={checkoutOpen}
         onClose={() => {
