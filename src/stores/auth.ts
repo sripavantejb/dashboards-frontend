@@ -51,8 +51,11 @@ export const useAuthStore = create<AuthState>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
-          const token = localStorage.getItem('accessToken');
-          if (state.isAuthenticated && !token) {
+          const access = localStorage.getItem('accessToken');
+          const refresh = localStorage.getItem('refreshToken');
+          // Keep the session if either token is still around so a missing access token
+          // can be refreshed instead of kicking the user to login.
+          if (state.isAuthenticated && !access && !refresh) {
             state.logout();
           }
         }

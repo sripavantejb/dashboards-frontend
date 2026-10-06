@@ -25,9 +25,19 @@ interface ApiResponse<T> {
 }
 
 class ApiClient {
+  private refreshInFlight: Promise<'ok' | 'rejected' | 'network'> | null = null;
+
   private getToken(): string | null {
     if (typeof window === 'undefined') return null;
     return localStorage.getItem('accessToken');
+  }
+
+  private kickToLogin() {
+    useAuthStore.getState().logout();
+    if (typeof window === 'undefined') return;
+    const { pathname } = window.location;
+    const loginPath = pathname.startsWith(PLATFORM_ADMIN_PATH) ? ADMIN_LOGIN_PATH : '/login';
+    if (pathname !== loginPath) window.location.href = loginPath;
   }
 
   private async request<T>(endpoint: string, options: ApiOptions = {}): Promise<ApiResponse<T>> {
@@ -50,9 +60,9 @@ class ApiClient {
         credentials: 'include',
       });
 
-      if (response.status === 401 && accessToken) {
+      if (response.status === 401 && (accessToken || localStorage.getItem('refreshToken'))) {
         const refreshed = await this.refreshToken();
-        if (refreshed) {
+        if (refreshed === 'ok') {
           headers.Authorization = `Bearer ${localStorage.getItem('accessToken')}`;
           const retryResponse = await fetch(`${API_URL}${endpoint}`, {
             ...fetchOptions,
@@ -61,12 +71,7 @@ class ApiClient {
           });
           return retryResponse.json();
         }
-        useAuthStore.getState().logout();
-        if (typeof window !== 'undefined') {
-          const { pathname } = window.location;
-          const loginPath = pathname.startsWith(PLATFORM_ADMIN_PATH) ? ADMIN_LOGIN_PATH : '/login';
-          if (pathname !== loginPath) window.location.href = loginPath;
-        }
+        if (refreshed === 'rejected') this.kickToLogin();
       }
 
       return response.json();
@@ -75,7 +80,15 @@ class ApiClient {
     }
   }
 
-  private async refreshToken(): Promise<boolean> {
+  private async refreshToken(): Promise<'ok' | 'rejected' | 'network'> {
+    if (this.refreshInFlight) return this.refreshInFlight;
+    this.refreshInFlight = this.doRefresh().finally(() => {
+      this.refreshInFlight = null;
+    });
+    return this.refreshInFlight;
+  }
+
+  private async doRefresh(): Promise<'ok' | 'rejected' | 'network'> {
     try {
       const storedRefresh = localStorage.getItem('refreshToken');
       const response = await fetch(`${API_URL}/auth/refresh`, {
@@ -84,18 +97,18 @@ class ApiClient {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(storedRefresh ? { refreshToken: storedRefresh } : {}),
       });
-      if (!response.ok) return false;
+      if (!response.ok) return 'rejected';
       const data = await response.json();
       if (data.data?.accessToken) {
         localStorage.setItem('accessToken', data.data.accessToken);
         if (data.data.refreshToken) {
           localStorage.setItem('refreshToken', data.data.refreshToken);
         }
-        return true;
+        return 'ok';
       }
-      return false;
+      return 'rejected';
     } catch {
-      return false;
+      return 'network';
     }
   }
 
