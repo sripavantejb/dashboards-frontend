@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { SimpleModal } from '@/components/shared/simple-modal';
 import { PageError, PageLoading } from '@/components/shared/page-states';
 import { DataTable, SectionCard, Select, StatCard, StatusPill, Tabs, Textarea, fmtDate, humanize, inr, toDateInput } from '@/components/shared/os-ui';
+import { cn } from '@/lib/utils';
 import { InvoiceSheet, downloadInvoicePdf, invoiceTotals, type CompanyProfile, type InvoiceData, type LineItem } from '@/components/os/invoice-sheet';
 
 type Any = Record<string, any>;
@@ -495,19 +496,29 @@ export function TransactionsPage() {
   const [form, setForm] = useState<Any>({});
   const query = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString();
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['transactions', query], queryFn: () => api.data<{ rows: Any[]; totals: Any }>(`/transactions?${query}`) });
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['transactions'] });
+    qc.invalidateQueries({ queryKey: ['revenue'] });
+    qc.invalidateQueries({ queryKey: ['os-dashboard'] });
+  };
   const save = useMutation({
     mutationFn: () => api.data('/transactions', 'POST', { ...form, amount: Number(form.amount), date: new Date(form.date).toISOString() }),
-    onSuccess: () => { toast.success('Transaction recorded'); setOpen(false); qc.invalidateQueries({ queryKey: ['transactions'] }); },
+    onSuccess: () => { toast.success('Transaction recorded'); setOpen(false); refresh(); },
+    onError: onErr,
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api.data(`/transactions/${id}`, 'DELETE'),
+    onSuccess: () => { toast.success('Transaction deleted'); refresh(); },
     onError: onErr,
   });
   return (
     <>
-      <PageHeader title="Transactions" description="A single ledger of income and spending: manual entries, manual revenue and invoice payments. Entries are append-only."
+      <PageHeader title="Transactions" description="Income and spending in one ledger. Deleted entries stay on record, struck through, and are left out of the remaining amount."
         action={can('payments:write') && <Button className="w-full sm:w-auto" onClick={() => { setForm({ type: 'expense', title: '', category: '', amount: '', date: toDateInput(new Date()), party: '', paymentMethod: 'upi', reference: '', notes: '' }); setOpen(true); }}><Plus className="mr-2 h-4 w-4" />Add transaction</Button>} />
       <PageGrid cols="3">
         <StatCard label="Income" value={inr(data?.totals.income)} tone="success" />
         <StatCard label="Spent" value={inr(data?.totals.spent)} tone="danger" />
-        <StatCard label="Net" value={inr(data?.totals.net)} />
+        <StatCard label="Remaining" value={inr(data?.totals.remaining ?? data?.totals.net)} hint="Calculated from entries that are still active" />
       </PageGrid>
       <PageToolbar>
         <Select className="sm:w-40" value={filters.type} onChange={(e) => setFilters({ ...filters, type: e.target.value })}><option value="">All types</option><option value="income">Income</option><option value="expense">Expense</option></Select>
@@ -517,14 +528,29 @@ export function TransactionsPage() {
         <Input className="sm:w-44" type="month" value={filters.month} onChange={(e) => setFilters({ ...filters, month: e.target.value })} />
       </PageToolbar>
       {isError ? <PageError onRetry={() => refetch()} /> : isLoading ? <PageLoading /> : (
-        <DataTable rows={(data?.rows || []) as any} empty="No transactions in this range."
+        <DataTable rows={(data?.rows || []) as any} empty="No transactions in this range." rowClassName={(r) => (r.deleted ? 'bg-error/[0.04]' : undefined)}
           columns={[
-            { key: 'date', header: 'Date', render: (r) => fmtDate(r.date) },
-            { key: 'title', header: 'Title', render: (r) => <div><p className="font-medium">{r.title}</p><p className="text-xs text-muted-foreground">{r.category || r.party}</p></div> },
-            { key: 'source', header: 'Source', render: (r) => <StatusPill value={r.source} tone="gray" /> },
-            { key: 'method', header: 'Method', render: (r) => humanize(r.method) || '—' },
-            { key: 'type', header: 'Type', render: (r) => <StatusPill value={r.type} /> },
-            { key: 'amount', header: 'Amount', className: 'text-right', render: (r) => <span className={r.type === 'expense' ? 'text-error' : 'text-success'}>{r.type === 'expense' ? '−' : '+'}{inr(r.amount)}</span> },
+            { key: 'date', header: 'Date', render: (r) => <span className={cn(r.deleted && 'text-muted-foreground line-through')}>{fmtDate(r.date)}</span> },
+            { key: 'title', header: 'Title', render: (r) => (
+              <div>
+                <p className={cn('font-medium', r.deleted && 'text-muted-foreground line-through')}>{r.title}</p>
+                <p className={cn('text-xs text-muted-foreground', r.deleted && 'line-through')}>{r.category || r.party}</p>
+                {r.deleted && <p className="mt-1 text-xs font-medium text-error">Deleted{r.deletedBy ? ` by ${r.deletedBy}` : ''}</p>}
+              </div>
+            ) },
+            { key: 'source', header: 'Source', render: (r) => <StatusPill value={r.source} tone="gray" className={r.deleted ? 'line-through opacity-70' : ''} /> },
+            { key: 'method', header: 'Method', render: (r) => <span className={cn(r.deleted && 'text-muted-foreground line-through')}>{humanize(r.method) || '—'}</span> },
+            { key: 'type', header: 'Type', render: (r) => (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <StatusPill value={r.type} className={r.deleted ? 'line-through opacity-60' : ''} />
+                {r.deleted && <StatusPill value="deleted" />}
+              </div>
+            ) },
+            { key: 'amount', header: 'Amount', className: 'text-right', render: (r) => <span className={cn(r.deleted ? 'text-muted-foreground line-through' : r.type === 'expense' ? 'text-error' : 'text-success')}>{r.type === 'expense' ? '−' : '+'}{inr(r.amount)}</span> },
+            { key: 'remaining', header: 'Remaining', className: 'text-right', render: (r) => (r.deleted || r.remaining == null ? <span className="text-muted-foreground">—</span> : <span className="font-medium tabular-nums">{inr(r.remaining)}</span>) },
+            { key: 'x', header: '', className: 'w-px', render: (r) => r.source === 'transactions' && !r.deleted && can('payments:write') ? (
+              <Button size="icon" variant="ghost" className="h-8 w-8 text-error" disabled={remove.isPending} onClick={() => window.confirm('Delete this transaction? It stays in the ledger as deleted and is left out of the remaining amount.') && remove.mutate(r.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+            ) : null },
           ]} />
       )}
       <SimpleModal open={open} onClose={() => setOpen(false)} title="Add transaction">

@@ -71,7 +71,7 @@ const STATUS_TONE: Record<string, keyof typeof TONES> = {
   partially_paid: 'amber', waiting_for_client: 'amber', pending: 'amber', on_hold: 'amber', paused: 'amber', draft: 'gray',
   pending_approval: 'amber', todo: 'gray', planned: 'gray', new: 'slate', submitted: 'gray', not_yet_started: 'gray',
   no_answer: 'slate', busy: 'amber', customers: 'teal',
-  overdue: 'red', blocked: 'red', cancelled: 'red', lost: 'rose', rejected: 'red', expired: 'red', missed: 'red',
+  overdue: 'red', blocked: 'red', cancelled: 'red', deleted: 'red', lost: 'rose', rejected: 'red', expired: 'red', missed: 'red',
   unqualified: 'orange', not_interested: 'rose', wrong_number: 'rose',
   inactive: 'gray', closed: 'gray', ended: 'gray', expense: 'red', archived: 'gray', urgent: 'red', high: 'amber',
   medium: 'blue', low: 'gray', hot: 'rose', warm: 'amber', cold: 'sky', due_soon: 'amber', due_today: 'amber',
@@ -199,7 +199,7 @@ export interface Column<T = AnyRow> {
   className?: string;
 }
 
-export function DataTable<T extends AnyRow = AnyRow>({ columns, rows, onRowClick, empty = 'Nothing here yet', selectedId, compact }: { columns: Column<T>[]; rows: T[]; onRowClick?: (row: T) => void; empty?: string; selectedId?: string; compact?: boolean }) {
+export function DataTable<T extends AnyRow = AnyRow>({ columns, rows, onRowClick, empty = 'Nothing here yet', selectedId, compact, rowClassName }: { columns: Column<T>[]; rows: T[]; onRowClick?: (row: T) => void; empty?: string; selectedId?: string; compact?: boolean; rowClassName?: (row: T) => string | undefined }) {
   const headCell = compact ? 'px-3 py-2.5' : 'px-4 py-3';
   const cell = compact ? 'px-3 py-2' : 'px-4 py-3';
   return (
@@ -227,7 +227,8 @@ export function DataTable<T extends AnyRow = AnyRow>({ columns, rows, onRowClick
                 className={cn(
                   'border-b border-black/[0.04] last:border-0 transition-colors',
                   onRowClick && 'cursor-pointer hover:bg-surface-soft/50',
-                  selectedId && (row._id === selectedId || row.id === selectedId) && 'bg-surface-soft/80'
+                  selectedId && (row._id === selectedId || row.id === selectedId) && 'bg-surface-soft/80',
+                  rowClassName?.(row)
                 )}
               >
                 {columns.map((c) => (
