@@ -25,7 +25,7 @@ import { CallHistory, LeadCallProvider, useLeadCall } from '@/components/sales/l
 type Any = Record<string, any>;
 const onErr = (e: Error) => toast.error(e.message);
 
-const LEAD_SOURCES = ['website', 'referral', 'instagram', 'facebook', 'linkedin', 'google', 'ads', 'campaign', 'cold_outreach', 'existing_customer', 'other'];
+const LEAD_SOURCES = ['website', 'referral', 'whatsapp', 'instagram', 'facebook', 'linkedin', 'youtube', 'twitter', 'telegram', 'google', 'apollo', 'ads', 'campaign', 'cold_outreach', 'existing_customer', 'other'];
 const LEAD_STATUSES = ['new', 'contacted', 'qualified', 'unqualified', 'converted', 'lost'];
 const DEAL_STAGES = ['new', 'contacted', 'qualified', 'meeting', 'proposal', 'negotiation', 'won', 'lost'];
 const LOST_REASONS = ['price_objection', 'timing_issue', 'requirement_mismatch', 'chose_competitor', 'no_response', 'other'];
@@ -676,6 +676,7 @@ export function SalesLeadsPage() {
   const create = useSalesAction((v: Any) => post('/leads', v), 'Lead created', () => setOpen(false), ['/leads', '/dashboard', '/my-day']);
   const setStatus = useLeadRowAction((v: { id: string; status: string }) => post(`/leads/${v.id}/status`, { status: v.status }), 'Status updated', (v) => ({ status: v.status }), ['/dashboard', '/my-day']);
   const setTemp = useLeadRowAction((v: { id: string; temperature: string }) => api.data(`/sales-crm/leads/${v.id}`, 'PATCH', { temperature: v.temperature }), 'Temperature updated', (v) => ({ temperature: v.temperature }));
+  const setSource = useLeadRowAction((v: { id: string; source: string }) => api.data(`/sales-crm/leads/${v.id}`, 'PATCH', { source: v.source }), 'Source updated', (v) => ({ source: v.source }));
   const logCall = useLeadRowAction((v: { id: string; outcome: string; status?: string }) => post('/calls', { leadId: v.id, outcome: v.outcome }), 'Call logged', (v) => ({
     lastCallOutcome: v.outcome,
     lastContactedAt: new Date().toISOString(),
@@ -865,6 +866,9 @@ export function SalesLeadsPage() {
               ) },
               { key: 'temperature', header: 'Temp.', className: 'w-[8.25rem]', render: (r) => (
                 <StageSelect value={r.temperature || 'warm'} options={['hot', 'warm', 'cold']} onChange={(temperature) => setTemp.mutate({ id: r._id, temperature })} />
+              ) },
+              { key: 'source', header: 'Source', className: 'w-[9rem]', render: (r) => (
+                <StageSelect value={r.source || 'website'} options={LEAD_SOURCES} onChange={(source) => setSource.mutate({ id: r._id, source })} />
               ) },
               ...(me.modules['comm.calls'] ? [{
                 key: 'call', header: 'Call', className: 'w-[11rem]', render: (r: Any) => (

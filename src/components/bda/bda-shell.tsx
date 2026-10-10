@@ -15,6 +15,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { StickyAlerts } from '@/components/notifications/sticky-alerts';
 import { CheckoutModal } from '@/components/sales/checkout-modal';
+import { SashiHourlyPrompt } from '@/components/sales/sashi-hourly-prompt';
 
 interface BdaShellProps {
   children: React.ReactNode;
@@ -158,6 +159,7 @@ export function BdaShell({ children, modules, employeeCode, displayName, basePat
     <div className="bda-portal min-h-screen">
       <ActivityTracker />
       <StickyAlerts orgSlug={orgSlug} />
+      <SashiHourlyPrompt />
       <AnimatePresence>
         {mobileOpen && (
           <motion.div

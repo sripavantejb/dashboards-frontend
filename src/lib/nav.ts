@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Table, Users, Kanban, ListTodo, FileText, Archive, Building2, Link2, FolderKanban,
   CheckSquare, CalendarDays, FileStack, TrendingUp, ArrowLeftRight, Receipt, Wallet, Repeat, AlertCircle,
   KeyRound, Activity, BarChart3, Settings, UserCog, Layers, Factory, Gift, Briefcase, Inbox, Sparkles, Mail,
-  Store, Phone, Import, Zap, Bell, Newspaper, Images, BookOpen, CalendarRange, Umbrella, ScrollText, UserPlus, type LucideIcon,
+  Store, Phone, Import, Zap, Bell, Newspaper, Images, BookOpen, CalendarRange, Umbrella, ScrollText, UserPlus, MapPin, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -26,6 +26,8 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'Overview',
     items: [
       { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, permission: 'dashboard:read' },
+      { name: 'BDA performance', href: '/bda-performance', icon: BarChart3, permission: 'sales_crm:write' },
+      { name: 'Lead finder', href: '/lead-finder', icon: MapPin, permission: 'sales_crm:write' },
       { name: 'Notifications', href: '/notifications', icon: Bell, permission: 'notifications:read' },
     ],
   },

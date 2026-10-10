@@ -54,7 +54,7 @@ const FALLBACK_COLUMNS: Template['columns'] = [
   { key: 'city', required: false, description: 'City' },
   { key: 'state', required: false, description: 'State / region' },
   { key: 'country', required: false, description: 'Country' },
-  { key: 'source', required: false, description: 'website | referral | instagram | facebook | linkedin | google | ads | campaign | cold_outreach | existing_customer | other' },
+  { key: 'source', required: false, description: 'website | referral | whatsapp | instagram | facebook | linkedin | youtube | twitter | telegram | google | apollo | ads | campaign | cold_outreach | existing_customer | other' },
   { key: 'campaign', required: false, description: 'Campaign or ad name' },
   { key: 'industry', required: false, description: 'Industry vertical' },
   { key: 'requirement', required: false, description: 'What they need' },

@@ -40,6 +40,8 @@ import { ClientDetailPage, ClientsPage, ConversionHubPage, ConversionsPage } fro
 import { DocumentsPage, MeetingsPage, ProjectWorkspacePage, ProjectsPage, TaskDetailPage, TasksPage } from '@/pages/os/delivery';
 import { InvoiceEditorPage, InvoicesPage, OutstandingPage, PaymentsPage, RecurringPaymentsPage, RevenuePage, TransactionsPage } from '@/pages/os/finance';
 import { ActivityPage, AnalyticsPage, CredentialsPage, IndustriesPage, ServicesPage, TrackerPage, VaultDetailPage, VaultPage } from '@/pages/os/operations';
+import { BdaPerformancePage } from '@/pages/os/bda-performance';
+import { LeadFinderPage } from '@/pages/os/lead-finder';
 import { ApplicationsPage, EgaPage, JobsPage, MagazinePage, NewsletterPage, ReferralsPage, RewardsPage } from '@/pages/os/growth';
 import { AssetsPage, ContentCalendarPage, KnowledgePage, LeavePage, SowPage } from '@/pages/os/agency';
 import { CareerJobPage, CareersPage, EgaApplyPage, MagazineArticlePage, MagazineHomePage, NewsletterSubscribePage, PortalInvoicePage, PortalPage, ReferPage, TrackPage } from '@/pages/os/public';
@@ -95,6 +97,8 @@ export default function App() {
 
       <Route element={<DashboardLayout />}>
         <Route path="/dashboard" element={<OsDashboardPage />} />
+        <Route path="/bda-performance" element={<BdaPerformancePage />} />
+        <Route path="/lead-finder" element={<LeadFinderPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/tracker" element={<TrackerPage />} />
 
