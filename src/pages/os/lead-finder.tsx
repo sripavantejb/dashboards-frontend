@@ -25,7 +25,8 @@ type FoundLead = {
 
 type SearchResult = {
   plan: { mapsQuery: string; titles: string[]; keywords: string };
-  sources: { web: boolean; maps: boolean; apollo: boolean; model: string };
+  engine: { provider: 'openai' | 'gemma'; model: string };
+  sources: { web: boolean; openai: boolean; gemma: boolean; openaiModels: string[]; gemmaModels: string[]; maps: boolean; apollo: boolean; model: string };
   messages: { web: string; maps: string; apollo: string };
   leads: FoundLead[];
 };
@@ -43,13 +44,15 @@ const empty = {
 
 export function LeadFinderPage() {
   const [form, setForm] = useState(empty);
+  const [provider, setProvider] = useState<'openai' | 'gemma'>('gemma');
+  const [model, setModel] = useState('gemma-4-26b-a4b-it');
   const [web, setWeb] = useState(true);
   const [maps, setMaps] = useState(false);
   const [apollo, setApollo] = useState(false);
   const [picked, setPicked] = useState<number[]>([]);
   const sources = useQuery({
     queryKey: ['sales', '/lead-finder/sources'],
-    queryFn: () => api.data<{ web: boolean; maps: boolean; apollo: boolean; model: string }>('/sales-crm/lead-finder/sources'),
+    queryFn: () => api.data<{ web: boolean; openai: boolean; gemma: boolean; openaiModels: string[]; gemmaModels: string[]; maps: boolean; apollo: boolean; model: string }>('/sales-crm/lead-finder/sources'),
   });
   const search = useMutation({
     mutationFn: () => api.data<SearchResult>('/sales-crm/lead-finder/search', 'POST', {
@@ -61,6 +64,8 @@ export function LeadFinderPage() {
       titles: form.titles,
       employeeMin: form.employeeMin === '' ? undefined : Number(form.employeeMin),
       employeeMax: form.employeeMax === '' ? undefined : Number(form.employeeMax),
+      provider,
+      model,
       sources: [web ? 'web' : '', maps ? 'maps' : '', apollo ? 'apollo' : ''].filter(Boolean),
     }),
     onSuccess: (data) => setPicked(data.leads.map((_, i) => i)),
@@ -76,11 +81,12 @@ export function LeadFinderPage() {
     <>
       <PageHeader
         title="Lead finder"
-        description="Search runs through OpenAI. A contact is shown only when its phone or email is copied from a page that search opened. Guessed or mock contacts are dropped."
+        description="Choose Gemma or OpenAI, then pick a model. A contact is shown only when its phone or email is copied from a page that search opened."
       />
       <PageGrid cols="3">
         <SectionCard title="Sources">
-          <p className="text-sm">OpenAI search: {sources.data?.web ? `connected (${sources.data.model})` : 'add LLM_API_KEY on the backend'}</p>
+          <p className="text-sm">Gemma: {sources.data?.gemma ? 'key connected' : 'add GEMMA_API_KEY on the backend'}</p>
+          <p className="mt-1 text-sm">OpenAI: {sources.data?.openai ? 'key connected' : 'add LLM_API_KEY on the backend'}</p>
           <p className="mt-1 text-sm text-muted-foreground">Google Maps: {sources.data?.maps ? 'key connected' : 'optional'}</p>
           <p className="mt-1 text-sm text-muted-foreground">Apollo.io: {sources.data?.apollo ? 'key connected' : 'optional'}</p>
         </SectionCard>
@@ -97,8 +103,27 @@ export function LeadFinderPage() {
           <Field label="Min employees" value={form.employeeMin} onChange={set('employeeMin')} placeholder="1" />
           <Field label="Max employees" value={form.employeeMax} onChange={set('employeeMax')} placeholder="50" />
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-4 text-sm">
-          <label className="flex items-center gap-2"><input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} /> OpenAI search</label>
+        <div className="mt-3 flex flex-wrap items-end gap-4 text-sm">
+          <div className="space-y-1">
+            <Label>Search with</Label>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant={provider === 'gemma' ? 'default' : 'outline'} onClick={() => { setProvider('gemma'); setModel(sources.data?.gemmaModels[0] || 'gemma-4-26b-a4b-it'); }}>Gemma</Button>
+              <Button type="button" size="sm" variant={provider === 'openai' ? 'default' : 'outline'} onClick={() => { setProvider('openai'); setModel(sources.data?.openaiModels[0] || 'gpt-4o-mini'); }}>OpenAI</Button>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label>Model</Label>
+            <select
+              className="h-9 rounded-md border bg-background px-2 text-sm"
+              value={model}
+              onChange={(event) => setModel(event.target.value)}
+            >
+              {(provider === 'gemma' ? sources.data?.gemmaModels || ['gemma-4-26b-a4b-it', 'gemma-4-31b-it'] : sources.data?.openaiModels || ['gpt-4o-mini', 'gpt-4o']).map((item) => (
+                <option key={item} value={item}>{item}</option>
+              ))}
+            </select>
+          </div>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} /> Web search</label>
           <label className="flex items-center gap-2"><input type="checkbox" checked={maps} onChange={(e) => setMaps(e.target.checked)} /> Google Maps</label>
           <label className="flex items-center gap-2"><input type="checkbox" checked={apollo} onChange={(e) => setApollo(e.target.checked)} /> Apollo.io</label>
           <Button disabled={search.isPending || !form.keyword.trim() || (!web && !maps && !apollo)} onClick={() => search.mutate()}>
@@ -122,7 +147,7 @@ export function LeadFinderPage() {
           }
         >
           <p className="mb-3 text-sm text-muted-foreground">
-            Maps query: {search.data.plan.mapsQuery}. Apollo keywords: {search.data.plan.keywords}.
+            Search: {search.data.engine.provider === 'gemma' ? 'Gemma' : 'OpenAI'} {search.data.engine.model}. Maps query: {search.data.plan.mapsQuery}.
             {search.data.messages.web ? ` ${search.data.messages.web}` : ''}
             {search.data.messages.maps && maps ? ` ${search.data.messages.maps}.` : ''}
             {search.data.messages.apollo && apollo ? ` ${search.data.messages.apollo}.` : ''}
@@ -159,7 +184,7 @@ export function LeadFinderPage() {
                       <td className="py-2 pr-3">{lead.phone || '—'}</td>
                       <td className="py-2 pr-3">{lead.email || '—'}</td>
                       <td className="py-2 pr-3">{[lead.city, lead.state].filter(Boolean).join(', ') || '—'}</td>
-                      <td className="py-2">{lead.source === 'google' ? 'Google Maps' : lead.source === 'apollo' ? 'Apollo' : 'OpenAI search'}</td>
+                      <td className="py-2">{lead.source === 'google' ? 'Google Maps' : lead.source === 'apollo' ? 'Apollo' : 'Web search'}</td>
                     </tr>
                   ))}
                 </tbody>
